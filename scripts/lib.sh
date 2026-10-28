@@ -45,7 +45,7 @@ set_env_var() {
 ensure_env() {
   [[ -f "$ROOT/.env" ]] || { cp "$ROOT/.env.example" "$ROOT/.env"; log "created .env"; }
   local key
-  for key in BROWSERLESS_TOKEN SEARXNG_SECRET_KEY; do
+  for key in SEARXNG_SECRET_KEY; do
     grep -q "^$key=." "$ROOT/.env" || set_env_var "$key" "$(openssl rand -hex 24)"
   done
   load_env

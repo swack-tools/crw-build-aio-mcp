@@ -5,7 +5,7 @@ CRW (a Firecrawl-compatible scraper) with all three stealth tiers, plus its MCP
 server for Claude and Codex, on Apple Silicon Macs.
 
   impersonated-http   no browser; mimics Chrome's TLS/HTTP2 fingerprint
-  chrome              browserless Chromium with stealth patches
+  chrome              desktop Chrome on a virtual display, over plain CDP
   camoufox            Camoufox, a fingerprint-spoofing Firefox fork
 
 Every image is built from upstream source by

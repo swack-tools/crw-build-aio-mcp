@@ -21,11 +21,10 @@ services:
       # crw sends this User-Agent from every tier (upstream's is "CRW/0.0.1").
       # scripts/up.sh sets CRW_USER_AGENT to match chrome-stealth's Chrome.
       - CRW_CRAWLER__USER_AGENT=${CRW_USER_AGENT:-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36}
-      # launch = {"stealth": true, "args": ["--disable-blink-features=AutomationControlled"]}:
-      # the flag clears navigator.webdriver in pages crw opens over raw CDP,
-      # which browserless's stealth plugin doesn't reach. A separate
-      # `stealth=true` parameter would replace this launch value.
-      - CRW_RENDERER__CHROME__WS_URL=ws://chrome-stealth:3000/chromium?token=${BROWSERLESS_TOKEN:-crwtest}&launch=%7B%22stealth%22%3Atrue%2C%22args%22%3A%5B%22--disable-blink-features%3DAutomationControlled%22%5D%7D
+      # A plain Chrome DevTools endpoint, not browserless (see docker/chrome-stealth).
+      - CRW_RENDERER__CHROME__WS_URL=ws://chrome-stealth:9222
+      # Upstream's 12s page budget ends Cloudflare's challenge (5-15s) early.
+      - CRW_RENDERER__CHROME_NAV_BUDGET_MS=20000
     depends_on: !override
       camofox:
         condition: service_healthy
@@ -47,11 +46,19 @@ services:
     pull_policy: never
     # Only crw talks to it, over the compose network.
     ports: !reset []
-    environment:
-      # browserless caps each session at TIMEOUT ms, but crw pools its CDP
-      # connections for up to 5 min idle (browser_pool.rs idle_timeout), so
-      # upstream's 30s cut pooled connections off mid-scrape (WS close 1013).
-      - TIMEOUT=600000
+    # Runs a windowed Chrome, not the browserless server, so none of
+    # browserless's settings apply. scripts/up.sh sets CRW_TZ to this
+    # machine's timezone.
+    environment: !override
+      - TZ=${CRW_TZ:-UTC}
+    # Reaps Chrome's exited child processes.
+    init: true
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9222/json/version"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   camofox:
     image: ${PROJECT:-crw-config}/camofox:${TAG:-local}
