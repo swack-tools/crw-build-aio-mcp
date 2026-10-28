@@ -37,7 +37,8 @@ IMAGES = {
     "searxng": ["searxng", "searxng-base"],
 }
 patches = sorted(os.path.relpath(p, root) for p in glob.glob(f"{root}/patches/*/*.patch"))
-common = recipe("docker-bake.hcl", "scripts/prep-sources.sh", "scripts/build-images.sh", *patches)
+ours = sorted(os.path.relpath(p, root) for p in glob.glob(f"{root}/docker/**/*", recursive=True) if os.path.isfile(p))
+common = recipe("docker-bake.hcl", "scripts/prep-sources.sh", "scripts/build-images.sh", *patches, *ours)
 camoufox = recipe("scripts/build-camoufox.sh")
 keys = {}
 for image, sources in IMAGES.items():

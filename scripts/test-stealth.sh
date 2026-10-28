@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # 1. /v1/capabilities must list all three stealth tiers.
 # 2. A scrape pinned to each tier must succeed and be rendered by that tier,
-#    and an unpinned (auto) scrape of a JS page must use a stealth tier.
-# 3. Bot-check report (never fails): bot.sannysoft.com through each JS tier,
-#    plus status/challenge detection for any STEALTH_URL=url1,url2 pages.
+#    and an unpinned (auto) scrape must use plain HTTP or a stealth tier.
+# 3. Bot-check report (never fails): bot.sannysoft.com, deviceandbrowserinfo.com
+#    and a Cloudflare challenge through auto and each JS tier, plus
+#    status/challenge detection for any STEALTH_URL=url1,url2 pages.
 source "$(dirname "$0")/lib.sh"
 
 url="$(crw_url)"
@@ -52,31 +53,56 @@ for tier in TIERS:
     note = "" if ok else f"  error={data.get('error') or data.get('warning') or '-'}"
     print(f"  {'PASS' if ok else 'FAIL'}  {tier:<18} renderedWith={got}  {secs:5.1f}s{note}")
 
-print("\nbot-check report (auto must use a stealth tier; the rest is informational)")
-print(f"  {'page':<34} {'tier':<18} result")
-for tier in [None] + JS_TIERS:
-    data, _ = scrape("https://bot.sannysoft.com", tier, ["rawHtml"], waitFor=3000)
-    doc = data.get("data") or {}
-    html = doc.get("rawHtml") or ""
-    if tier is None:
-        got = (doc.get("metadata") or {}).get("renderedWith")
-        tier = f"auto -> {got}"
-        if got not in TIERS:
-            failed = True
-            tier += " (FAIL: not a stealth tier)"
-    if not data.get("success") or not html:
-        print(f"  {'bot.sannysoft.com':<34} {tier:<18} error: {data.get('error')}")
-        continue
+def sannysoft(html):
     counts = {k: len(re.findall(rf'class="[^"]*\b{k}\b', html)) for k in ("passed", "warn", "failed")}
-    # A fully rendered page has ~30 checks. Fewer means its JS was still filling
-    # the table when the DOM was read (crw's camoufox renderer ignores waitFor).
+    # A fully rendered page has ~30 checks; fewer means its JS was still
+    # filling the table when the DOM was read.
     if sum(counts.values()) < 20:
-        print(f"  {'bot.sannysoft.com':<34} {tier:<18} incomplete render "
-              f"({sum(counts.values())} checks), no verdict")
-        continue
+        return f"incomplete render ({sum(counts.values())} checks), no verdict"
     webdriver = re.search(r'id="webdriver-result"[^>]*>([^<]*)', html)
-    print(f"  {'bot.sannysoft.com':<34} {tier:<18} passed={counts['passed']} warn={counts['warn']} "
-          f"failed={counts['failed']} webdriver={webdriver.group(1).strip() if webdriver else '?'}")
+    return (f"passed={counts['passed']} warn={counts['warn']} failed={counts['failed']} "
+            f"webdriver={webdriver.group(1).strip() if webdriver else '?'}")
+
+
+def deviceandbrowserinfo(html):
+    verdict = re.search(r'"isBot":\s*(true|false)', html)
+    if not verdict:
+        return "no verdict on the page"
+    signals = sorted(set(re.findall(r'"(\w+)":\s*true', html)) - {"isBot"})
+    return ("bot: " + ", ".join(signals)) if verdict.group(1) == "true" else "not a bot"
+
+
+def cloudflare(html):
+    if "You bypassed the Cloudflare challenge" in html:
+        return "passed"
+    return "challenge" if re.search(r"just a moment|verify you are human", html, re.I) else "unexpected page"
+
+
+CHECKS = [
+    ("bot.sannysoft.com", "https://bot.sannysoft.com", sannysoft),
+    ("deviceandbrowserinfo.com", "https://deviceandbrowserinfo.com/are_you_a_bot", deviceandbrowserinfo),
+    ("Cloudflare challenge", "https://www.scrapingcourse.com/cloudflare-challenge", cloudflare),
+]
+
+print("\nbot-check report (auto must not use a non-stealth browser; the rest is informational)")
+print(f"  {'page':<34} {'tier':<18} result")
+for name, page, check in CHECKS:
+    for tier in [None] + JS_TIERS:
+        # markdown too, as MCP clients ask: auto mode judges a rawHtml-only
+        # response by different rules and can reject a page it would serve.
+        data, _ = scrape(page, tier, ["rawHtml", "markdown"], waitFor=5000)
+        doc = data.get("data") or {}
+        html = doc.get("rawHtml") or ""
+        label = tier
+        if tier is None:
+            got = (doc.get("metadata") or {}).get("renderedWith")
+            label = f"auto -> {got}"
+            # Plain HTTP runs no page JavaScript, so it has no fingerprint to give away.
+            if data.get("success") and got not in TIERS + ["http"]:
+                failed = True
+                label += " (FAIL: not a stealth tier)"
+        result = check(html) if data.get("success") and html else f"error: {data.get('error')}"
+        print(f"  {name:<34} {label:<18} {result}")
 
 CHALLENGE = re.compile(r"just a moment|attention required|access denied|captcha|are you a robot|verify you are human", re.I)
 for page in filter(None, extra.split(",")):

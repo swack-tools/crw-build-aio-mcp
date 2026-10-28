@@ -104,12 +104,23 @@ target "browserless-base" {
   tags       = image("browserless-base")
 }
 
-target "chrome-stealth" {
+target "browserless-chromium" {
   inherits   = ["_common"]
   context    = CTX_BROWSERLESS
   dockerfile = "docker/chromium/Dockerfile"
   contexts = {
     "ghcr.io/browserless/base:latest" = "target:browserless-base"
+  }
+  labels = oci("https://github.com/browserless/browserless", SHA_BROWSERLESS)
+  tags   = image("browserless-chromium")
+}
+
+# The browserless image run as a plain windowed Chrome (docker/chrome-stealth/start.sh).
+target "chrome-stealth" {
+  inherits = ["_common"]
+  context  = "docker/chrome-stealth"
+  contexts = {
+    browserless-chromium = "target:browserless-chromium"
   }
   labels = oci("https://github.com/browserless/browserless", SHA_BROWSERLESS)
   tags   = image("chrome-stealth")

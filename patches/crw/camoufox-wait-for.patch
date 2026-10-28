@@ -1,0 +1,68 @@
+diff --git a/crates/crw-renderer/src/camoufox.rs b/crates/crw-renderer/src/camoufox.rs
+index 9f97643..2d23160 100644
+--- a/crates/crw-renderer/src/camoufox.rs
++++ b/crates/crw-renderer/src/camoufox.rs
+@@ -50,6 +50,8 @@ const CHALLENGE_POLL_INTERVAL: Duration = Duration::from_secs(3);
+ /// evaluate. Below it the call can only time out, which would replace the
+ /// informative wall error with a bare "timed out".
+ const MIN_POLL_EVALUATE_BUDGET: Duration = Duration::from_millis(250);
++/// Request-deadline time a caller's `waitFor` leaves for reading the DOM.
++const WAIT_FOR_READ_RESERVE: Duration = Duration::from_secs(2);
+ /// What the poll can still spend after its ceiling before the caller sees the
+ /// result: one last evaluate at its floor plus the awaited session teardown.
+ /// A reserve handed to [`CamoufoxRenderer::with_challenge_reserve`] on behalf
+@@ -264,10 +266,11 @@ impl CamoufoxRenderer {
+         url: &str,
+         user_id: &str,
+         session_key: &str,
++        wait_for: Option<Duration>,
+         deadline: &Deadline,
+     ) -> CrwResult<(u16, String)> {
+         let inner = self
+-            .run_sequence_inner(url, user_id, session_key, deadline)
++            .run_sequence_inner(url, user_id, session_key, wait_for, deadline)
+             .await;
+         self.destroy_session(user_id).await;
+         inner
+@@ -278,9 +281,17 @@ impl CamoufoxRenderer {
+         url: &str,
+         user_id: &str,
+         session_key: &str,
++        wait_for: Option<Duration>,
+         deadline: &Deadline,
+     ) -> CrwResult<(u16, String)> {
+         let tab_id = self.create_tab(url, user_id, session_key, deadline).await?;
++        // The caller's `waitFor`, as the CDP tiers honor it: the tab is read
++        // as soon as navigation returns, before most page scripts have run.
++        // Capped so the read still fits in the deadline.
++        if let Some(wait) = wait_for {
++            let room = deadline.remaining().saturating_sub(WAIT_FOR_READ_RESERVE);
++            tokio::time::sleep(wait.min(room)).await;
++        }
+         let mut html = self.evaluate_outer_html(&tab_id, user_id, deadline).await?;
+ 
+         // A Cloudflare-style JS challenge resolves client-side, empirically
+@@ -455,7 +466,7 @@ impl PageFetcher for CamoufoxRenderer {
+         &self,
+         url: &str,
+         _headers: &HashMap<String, String>,
+-        _wait_for_ms: Option<u64>,
++        wait_for_ms: Option<u64>,
+         deadline: Deadline,
+     ) -> CrwResult<FetchResult> {
+         if deadline.expired() {
+@@ -465,7 +476,13 @@ impl PageFetcher for CamoufoxRenderer {
+         let user_id = Self::rand_id("crw_");
+         let session_key = Self::rand_id("task_");
+         let (status, html) = self
+-            .run_sequence(url, &user_id, &session_key, &deadline)
++            .run_sequence(
++                url,
++                &user_id,
++                &session_key,
++                wait_for_ms.map(Duration::from_millis),
++                &deadline,
++            )
+             .await?;
+ 
+         Ok(FetchResult {

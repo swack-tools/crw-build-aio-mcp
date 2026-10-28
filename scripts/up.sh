@@ -19,6 +19,13 @@ if [[ -z "${CRW_USER_AGENT:-}" ]]; then
   fi
 fi
 
+# Browsers report a timezone, and one that doesn't fit the IP's location is a
+# bot signal. Use this machine's (the image's own is America/Los_Angeles).
+if [[ -z "${CRW_TZ:-}" ]]; then
+  tz="$(readlink /etc/localtime 2>/dev/null | sed -n 's|.*zoneinfo/||p')"
+  if [[ -n "$tz" ]]; then export CRW_TZ="$tz"; else warn "could not read this machine's timezone; the browsers use UTC"; fi
+fi
+
 log "starting $PROJECT on $(crw_url)"
 compose up -d --wait --remove-orphans
 

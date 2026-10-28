@@ -4,7 +4,7 @@ Run [CRW](https://github.com/fastcrw/crw), the Firecrawl-compatible scraper, loc
 
 | tier | what it is | where it runs |
 |---|---|---|
-| `chrome` via `--profile stealth` | browserless Chromium with stealth patches | `chrome-stealth` container |
+| `chrome` via `--profile stealth` | desktop Chrome on a virtual display, driven over plain CDP | `chrome-stealth` container |
 | `impersonated-http` | no browser; mimics Chrome's TLS/HTTP2 fingerprint | inside crw |
 | `camoufox` | Camoufox, a fingerprint-spoofing Firefox fork, behind the camofox-browser REST server | `camofox` container |
 
@@ -73,8 +73,18 @@ Requirements: Docker with buildx (a containerd image store is needed for `build-
   - It swaps in the local images and adds the `camofox` service, which crw reaches through `CRW_RENDERER__CAMOUFOX__BASE_URL`.
   - **Stealth by default:** it sets `CRW_RENDERER__MODE=chrome`. Upstream's `auto` mode tries Lightpanda first, which has no stealth and answers most pages, so Lightpanda is neither built nor started.
   - **User-Agent:** it replaces crw's `CRW/0.0.1` with a Linux Chrome User-Agent. `up.sh` sets the version to match the Chrome inside chrome-stealth.
-  - **Hiding automation:** it launches browserless with `--disable-blink-features=AutomationControlled`, which clears `navigator.webdriver` in the pages crw opens over raw CDP. browserless's stealth plugin doesn't reach those pages.
-  - `patches/crw/stealth-js-only-patch-what-is-missing.patch` stops crw's injected stealth script from defining `navigator.webdriver` on `navigator` itself and from replacing a real `PluginArray`. Bot checks such as bot.sannysoft.com flag both.
+  - **Chrome:** `docker/chrome-stealth` starts browserless's Chromium image as a windowed Chrome on a virtual display (Xvfb, 1920×1080), not as the browserless server.
+    - browserless drives every Chrome it launches through puppeteer, which turns on the CDP Runtime domain in each page and worker. Pages can detect that, so deviceandbrowserinfo.com reported a bot and Cloudflare's challenge never cleared.
+    - Headless Chrome also differs from desktop Chrome (its User-Agent inside workers, client hints, timing), and stealth scripts that cover this up get caught by checks such as CreepJS. Windowed Chrome has nothing to cover up.
+    - Chrome only listens on loopback when it has a window, so a small relay (`relay.js`) exposes its DevTools port to crw.
+    - It gets this machine's timezone from `up.sh`. The browserless image hardcodes America/Los_Angeles, which a detector can compare with the IP's location.
+    - crw's Chrome page budget is raised from 12s to 20s (`CRW_RENDERER__CHROME_NAV_BUDGET_MS`) so Cloudflare's challenge has time to clear.
+  - **`patches/crw/cdp-stealth.patch`:**
+    - crw no longer turns on the CDP Runtime domain, which it never needed.
+    - Each section of its injected stealth script only patches a value that is missing or wrong, so desktop Chrome runs it as a no-op. The WebGL spoof ("Intel Iris OpenGL Engine", a macOS GPU under a Linux User-Agent) is gone.
+    - It skips the User-Agent override when Chrome already sends that User-Agent, because an override without client-hint metadata empties `navigator.userAgentData`.
+    - Once an anti-bot challenge clears, it reports the real page's HTTP status rather than the challenge's 403.
+  - **`patches/crw/camoufox-wait-for.patch`** makes the Camoufox renderer honor `waitFor`.
 - **Ports:** crw is published on `127.0.0.1:$CRW_HOST_PORT` (default 3000). If the port is busy, `up-stealth` offers the next free one and saves the choice to `.env`.
 - **MCP:** `bin/crw-mcp` runs in proxy mode, pointed at the stack with `CRW_API_URL`.
   - Codex gets `tool_timeout_sec = 300`, because Camoufox scrapes can outlast its 60s default.
@@ -103,6 +113,7 @@ Building these from source is out of scope: official base images (debian, ubuntu
 ## Notes
 
 - **Version risk:** Camoufox `main` can be ahead of the version camofox-browser pins. If the camoufox tier fails, set `CAMOUFOX_REF` to the pinned tag (see `src/camofox-browser/Dockerfile`) and run `just update`.
-- **Camoufox and JavaScript:** crw's Camoufox renderer reads the page as soon as the tab opens and ignores `waitFor`, so pages that build their content with JavaScript can come back incomplete. `test-stealth` reports these as "incomplete render".
+- **Camoufox and Cloudflare:** Cloudflare shows Camoufox an interactive "Verify you are human" checkbox, which crw doesn't click. Chrome gets through the same challenge without one, so leave `renderer` unset for Cloudflare-protected sites.
+- **Remaining fingerprint tells:** the container has no GPU, so Chrome offers no WebGL. Chrome's software WebGL (SwiftShader) would fill the gap, but Cloudflare fails it where it passes no WebGL. The timezone (set by `up.sh`) and CPU count are the host's.
 - **Crash reports:** camofox-browser's crash reporter is off (`CAMOFOX_CRASH_REPORT_ENABLED=false`).
 - **Licenses:** browserless is SSPL, and crw and SearXNG are AGPL. Building and running them locally is fine; publishing the images (`just push`) or offering the stack as a service carries their terms.
