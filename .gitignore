@@ -1,0 +1,6 @@
+/src/
+/dist/
+/bin/
+/build/
+/.stamps/
+/.env

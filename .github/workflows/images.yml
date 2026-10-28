@@ -1,0 +1,171 @@
+name: Images
+
+# Builds every image from upstream source for linux/amd64 and linux/arm64, each
+# arch on its own native runner, then pushes them to Docker Hub as multi-arch
+# tags signed with cosign. An image whose inputs (upstream commits + this repo's
+# build recipe) already have a src-<key> tag is reused instead of rebuilt, and
+# Camoufox is compiled only when its commit changes.
+# Called by nightly.yml and release.yml; can also be run by hand.
+
+on:
+  workflow_call:
+    inputs:
+      tags:
+        description: Extra tags for every image, comma-separated; {date} becomes YYYYMMDD
+        type: string
+        required: true
+    outputs:
+      refs:
+        description: The upstream commits built, as NAME_REF=<sha> pairs
+        value: ${{ jobs.plan.outputs.refs }}
+      keys:
+        description: JSON map of image name to its src-<key>
+        value: ${{ jobs.plan.outputs.keys }}
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: Extra tags for every image, comma-separated; {date} becomes YYYYMMDD
+        type: string
+        default: edge
+
+permissions:
+  contents: read
+
+env:
+  # Docker Hub allows one path segment, so images are <user>/crw-config-<name>.
+  REGISTRY: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      refs: ${{ steps.plan.outputs.refs }}
+      keys: ${{ steps.plan.outputs.keys }}
+      camoufox_key: ${{ steps.plan.outputs.camoufox_key }}
+      build: ${{ steps.plan.outputs.build }}
+      camoufox_arches: ${{ steps.plan.outputs.camoufox_arches }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Clone upstreams at their current heads
+        run: scripts/fetch-sources.sh
+      - name: Pin commits and find what needs building
+        id: plan
+        run: scripts/ci-plan.sh | tee -a "$GITHUB_OUTPUT"
+
+  camoufox:
+    needs: plan
+    if: needs.plan.outputs.camoufox_arches != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.plan.outputs.camoufox_arches) }}
+    # Upstream builds on x86_64 Linux and cross-compiles arm64 from there.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      REFS: ${{ needs.plan.outputs.refs }}
+      ARCH: ${{ matrix.arch }}
+      CAMOUFOX_KEY: ${{ needs.plan.outputs.camoufox_key }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Free disk space for the Firefox build
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/share/swift /usr/local/share/powershell /opt/microsoft /opt/google
+          docker system prune -af
+          df -h /
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Compile Camoufox
+        run: |
+          read -ra refs <<< "$REFS" && export "${refs[@]}"
+          scripts/fetch-sources.sh camoufox
+          scripts/build-camoufox.sh "$ARCH"
+      - name: Push the zip as a camoufox-dist image
+        run: |
+          platform="linux/$([[ "$ARCH" == arm64 ]] && echo arm64 || echo amd64)"
+          printf 'FROM scratch\nCOPY camoufox-*-lin.%s.zip /\n' "$ARCH" |
+            docker buildx build --platform "$platform" --push \
+              -t "${REGISTRY}crw-config-camoufox-dist:$CAMOUFOX_KEY-$ARCH" -f - dist
+
+  build:
+    needs: [plan, camoufox]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.build != '[]' && needs.camoufox.result != 'failure' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.plan.outputs.build) }}
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    env:
+      REFS: ${{ needs.plan.outputs.refs }}
+      IMAGE: ${{ matrix.image }}
+      ARCH: ${{ matrix.arch }}
+      CAMOUFOX_KEY: ${{ needs.plan.outputs.camoufox_key }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push by digest
+        run: |
+          read -ra refs <<< "$REFS" && export "${refs[@]}"
+          scripts/fetch-sources.sh
+          scripts/prep-sources.sh
+          if [[ "$IMAGE" == camofox ]]; then
+            zip_arch="$([[ "$ARCH" == arm64 ]] && echo arm64 || echo x86_64)"
+            export CAMOUFOX_DIST="docker-image://${REGISTRY}crw-config-camoufox-dist:$CAMOUFOX_KEY-$zip_arch"
+          fi
+          scripts/build-images.sh "$ARCH" --push-by-digest meta.json "$IMAGE"
+          mkdir -p digests
+          python3 -I -c 'import json, sys; print(json.load(open("meta.json"))[sys.argv[1]]["containerimage.digest"])' \
+            "$IMAGE" > "digests/$IMAGE-$ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.image }}-${{ matrix.arch }}
+          path: digests/*
+          retention-days: 1
+
+  publish:
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.build.result == 'success' || needs.plan.outputs.build == '[]') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write # cosign keyless signing
+    env:
+      KEYS: ${{ needs.plan.outputs.keys }}
+      TAGS: ${{ inputs.tags }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.build.result == 'success'
+        with:
+          pattern: digest-*
+          merge-multiple: true
+          path: digests
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Tag and sign
+        run: |
+          mkdir -p digests
+          IFS=, read -ra tags <<< "${TAGS//\{date\}/$(date -u +%Y%m%d)}"
+          scripts/ci-publish.sh "$KEYS" digests "${tags[@]}"

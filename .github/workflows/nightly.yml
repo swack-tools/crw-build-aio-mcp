@@ -1,0 +1,24 @@
+name: Nightly
+
+# Rebuilds whatever changed upstream since the last run and points the
+# `nightly` and `nightly-YYYYMMDD` tags at the result. Unchanged images are
+# only retagged, so a quiet night takes a few minutes.
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # cosign keyless signing in images.yml
+
+concurrency:
+  group: nightly
+
+jobs:
+  images:
+    uses: ./.github/workflows/images.yml
+    with:
+      tags: nightly,nightly-{date}
+    secrets: inherit

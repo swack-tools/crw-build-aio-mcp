@@ -1,0 +1,59 @@
+# Layered on src/crw/docker-compose.yml + docker-compose.stealth.yml, so the
+# upstream service settings and hardening stay in effect (see `compose` in
+# scripts/lib.sh). This file only swaps in our locally built images and adds
+# the Camoufox tier. Relative paths here would resolve against src/crw/.
+services:
+  crw:
+    image: ${PROJECT:-crw-config}/crw:${TAG:-local}
+    build: !reset null
+    pull_policy: never
+    # Upstream binds 0.0.0.0 unless CRW_BIND_ADDRESS is set; default to loopback.
+    ports: !override
+      - ${CRW_BIND_ADDRESS:-127.0.0.1}:${CRW_HOST_PORT:-3000}:3000
+    environment:
+      - CRW_RENDERER__IMPERSONATED__ENABLED=true
+      - CRW_RENDERER__CAMOUFOX__BASE_URL=http://camofox:9377
+      - CRW_RENDERER__CAMOUFOX__INCLUDE_IN_AUTO=true
+    depends_on:
+      camofox:
+        condition: service_healthy
+      chrome-stealth:
+        condition: service_healthy
+
+  searxng:
+    image: ${PROJECT:-crw-config}/searxng:${TAG:-local}
+    pull_policy: never
+
+  lightpanda:
+    image: ${PROJECT:-crw-config}/lightpanda:${TAG:-local}
+    pull_policy: never
+
+  chrome-stealth:
+    image: ${PROJECT:-crw-config}/chrome-stealth:${TAG:-local}
+    pull_policy: never
+    # Only crw talks to it, over the compose network.
+    ports: !reset []
+    environment:
+      # browserless caps each session at TIMEOUT ms, but crw pools its CDP
+      # connections for up to 5 min idle (browser_pool.rs idle_timeout), so
+      # upstream's 30s cut pooled connections off mid-scrape (WS close 1013).
+      - TIMEOUT=600000
+
+  camofox:
+    image: ${PROJECT:-crw-config}/camofox:${TAG:-local}
+    pull_policy: never
+    profiles: ["stealth"]
+    restart: unless-stopped
+    environment:
+      - CAMOFOX_PORT=9377
+      - CAMOFOX_CRASH_REPORT_ENABLED=false
+      - MAX_OLD_SPACE_SIZE=512
+    shm_size: "2g"
+    mem_limit: 4g
+    memswap_limit: 4g
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9377/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

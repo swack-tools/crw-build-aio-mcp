@@ -1,0 +1,207 @@
+name: Release
+
+# On a v* tag (made by `just release <version>`): build and push the images
+# tagged <version> and latest, then build the macOS disk image: the signed crw-mcp
+# binary plus a compose bundle pinned to those images. The disk image is signed,
+# notarized and stapled, then attached to the tag's draft release, which this
+# publishes.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, for example v0.1.0
+        required: true
+
+permissions:
+  contents: write
+  id-token: write # cosign keyless signing in images.yml
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - id: version
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] || { echo "tag must look like v0.1.0, got $TAG" >&2; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+
+  images:
+    needs: version
+    uses: ./.github/workflows/images.yml
+    with:
+      tags: ${{ needs.version.outputs.version }},latest
+    secrets: inherit
+
+  bundle:
+    needs: [version, images]
+    runs-on: ubuntu-24.04
+    env:
+      REGISTRY: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/
+      REFS: ${{ needs.images.outputs.refs }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - name: Assemble the compose bundle
+        run: |
+          read -ra refs <<< "$REFS" && export "${refs[@]}"
+          scripts/fetch-sources.sh crw
+          scripts/release-bundle.sh "${REGISTRY}crw-config-" "$VERSION" bundle "$VERSION"
+          # tar keeps the exec bits and .env.example, which artifacts drop.
+          tar -C bundle -czf bundle.tgz .
+          echo "$REFS" | tr ' ' '\n' > upstream-commits.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bundle
+          path: |
+            bundle.tgz
+            upstream-commits.txt
+          retention-days: 7
+
+  dmg:
+    needs: [version, images, bundle]
+    runs-on: macos-latest
+    env:
+      # Signing runs only when the repo has the Apple secrets, so a release
+      # still ships without them.
+      CAN_SIGN: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_TEAM_NAME != '' && secrets.APPLE_TEAM_ID != '' }}
+      CAN_NOTARIZE: ${{ secrets.APPLE_ID != '' && secrets.APPLE_APP_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+      REFS: ${{ needs.images.outputs.refs }}
+      TAG: ${{ needs.version.outputs.tag }}
+      VERSION: ${{ needs.version.outputs.version }}
+      DMG: crw-build-aio-mcp-${{ needs.version.outputs.version }}-macos-arm64.dmg
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bundle
+
+      - name: Build crw-mcp
+        run: |
+          read -ra refs <<< "$REFS" && export "${refs[@]}"
+          scripts/fetch-sources.sh crw
+          (cd src/crw && cargo build --release --locked -p crw-mcp --no-default-features)
+          file src/crw/target/release/crw-mcp
+
+      - name: Import Developer ID certificate
+        if: env.CAN_SIGN == 'true'
+        run: |
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+
+          echo "${{ secrets.APPLE_CERTIFICATE_BASE64 }}" | base64 --decode > certificate.p12
+
+          security import certificate.p12 \
+            -k build.keychain \
+            -P "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" \
+            -T /usr/bin/codesign
+
+          # Each existing keychain has to be its own argument, so this line splits the list on purpose.
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s build.keychain $(security list-keychains -d user | tr -d '"')
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm -f certificate.p12
+
+      - name: Code sign crw-mcp
+        if: env.CAN_SIGN == 'true'
+        run: |
+          SIGN_IDENTITY="Developer ID Application: ${{ secrets.APPLE_TEAM_NAME }} (${{ secrets.APPLE_TEAM_ID }})"
+          codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" src/crw/target/release/crw-mcp
+          codesign --verify --strict --verbose=2 src/crw/target/release/crw-mcp
+
+      - name: Create disk image
+        run: |
+          mkdir stage
+          tar -C stage -xzf bundle.tgz
+          cp src/crw/target/release/crw-mcp stage/payload/bin/
+          hdiutil create -volname crw-build-aio-mcp -srcfolder stage -ov -format UDZO "$DMG"
+
+      - name: Sign disk image
+        if: env.CAN_SIGN == 'true'
+        run: |
+          SIGN_IDENTITY="Developer ID Application: ${{ secrets.APPLE_TEAM_NAME }} (${{ secrets.APPLE_TEAM_ID }})"
+          codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG"
+          codesign --verify --strict --verbose=2 "$DMG"
+
+      - name: Notarize and staple disk image
+        if: env.CAN_SIGN == 'true' && env.CAN_NOTARIZE == 'true'
+        run: |
+          xcrun notarytool submit "$DMG" \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --password "${{ secrets.APPLE_APP_PASSWORD }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --wait
+          # Unlike a bare binary, a disk image takes a stapled ticket, so it
+          # opens offline without an online notarization check.
+          xcrun stapler staple "$DMG"
+          spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+
+      - name: Create checksums
+        run: |
+          shasum -a 256 "$DMG" > "$DMG.sha256"
+          cat "$DMG.sha256"
+
+      - name: Write release notes
+        env:
+          REGISTRY: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/
+        run: |
+          # Keep the block of the template that fits this build.
+          if [[ "$CAN_SIGN" == "true" && "$CAN_NOTARIZE" == "true" ]]; then drop=unsigned; else drop=notarized; fi
+          python3 -I - "$drop" <<'PY' > release-notes.md
+          import os, sys
+          drop = sys.argv[1]
+          env = os.environ
+          images = "\n".join(f"- `{env['REGISTRY']}crw-config-{n}:{env['VERSION']}`"
+                             for n in ("crw", "camofox", "chrome-stealth", "searxng", "lightpanda"))
+          commits = "\n".join(f"| {k.removesuffix('_REF').lower().replace('_', '-')} | `{v}` |"
+                              for k, v in (p.split("=", 1) for p in env["REFS"].split()))
+          out, skip = [], False
+          for line in open(".github/release-notes.md").read().splitlines():
+              if line == f"<!-- {drop} -->": skip = True; continue
+              if line == f"<!-- /{drop} -->": skip = False; continue
+              if line.strip() in ("<!-- notarized -->", "<!-- /notarized -->", "<!-- unsigned -->", "<!-- /unsigned -->"): continue
+              if not skip: out.append(line)
+          text = "\n".join(out) + "\n"
+          for key, value in {"@VERSION@": env["VERSION"], "@DMG@": env["DMG"], "@IMAGES@": images,
+                             "@COMMITS@": commits, "@REGISTRY@": env["REGISTRY"]}.items():
+              text = text.replace(key, value)
+          print(text, end="")
+          PY
+          cat release-notes.md
+
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          assets=("$DMG" "$DMG.sha256")
+          args=(--title "crw-build-aio-mcp $VERSION" --notes-file release-notes.md --latest)
+          # `just release` opens the draft as the maintainer; publish that one.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" --clobber "${assets[@]}"
+            gh release edit "$TAG" "${args[@]}" --draft=false
+          else
+            gh release create "$TAG" --verify-tag "${args[@]}" "${assets[@]}"
+          fi
+
+      - name: Cleanup keychain
+        if: always() && env.CAN_SIGN == 'true'
+        run: security delete-keychain build.keychain
