@@ -28,13 +28,16 @@ python3 -I - "$out/stack.json" "$payload/compose.json" "$prefix" "$tag" "$(src_d
 import json, os, shutil, sys
 src, dst, prefix, tag, crw_dir, payload = sys.argv[1:]
 stack = json.load(open(src))
-OURS = {"crw", "camofox", "chrome-stealth", "searxng", "lightpanda"}
+OURS = {"crw", "camofox", "chrome-stealth", "searxng"}
 stack.pop("name", None)
 stack.pop("networks", None)
 services = stack["services"]
-# Upstream's plain-Chromium `heavy` service is superseded by chrome-stealth.
-services.pop("chrome", None)
-services["crw"].get("depends_on", {}).pop("chrome", None)
+# Keep what `--profile stealth` starts: no profile, or the stealth one. This
+# drops upstream's plain-Chromium `heavy` service and the unused lightpanda.
+for name in [n for n, svc in services.items() if "stealth" not in (svc.get("profiles") or ["stealth"])]:
+    del services[name]
+    for svc in services.values():
+        svc.get("depends_on", {}).pop(name, None)
 for name, svc in services.items():
     if name not in OURS:
         sys.exit(f"unexpected service {name!r}: decide whether the bundle ships it")

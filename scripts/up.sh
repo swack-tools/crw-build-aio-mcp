@@ -5,6 +5,20 @@ source "$(dirname "$0")/lib.sh"
 "$ROOT/scripts/pick-port.sh"
 load_env
 
+# crw sends its own User-Agent; make it claim the Chrome that chrome-stealth
+# actually runs (pulling the image first if this is a fresh install).
+if [[ -z "${CRW_USER_AGENT:-}" ]]; then
+  image="$(compose config --images | grep -m1 chrome-stealth || true)"
+  major="$(docker run --rm --entrypoint sh "$image" -c \
+    'find /usr/local/bin/playwright-browsers -path "*chromium-*" -name chrome -type f -exec {} --version \; -quit' \
+    2>/dev/null | grep -oE '[0-9]+\.' | head -1 | tr -d .)" || true
+  if [[ -n "$major" ]]; then
+    export CRW_USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$major.0.0.0 Safari/537.36"
+  else
+    warn "could not read chrome-stealth's Chrome version; crw keeps its built-in User-Agent"
+  fi
+fi
+
 log "starting $PROJECT on $(crw_url)"
 compose up -d --wait --remove-orphans
 

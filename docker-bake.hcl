@@ -21,7 +21,6 @@ variable "CTX_CAMOFOX_BROWSER" { default = "src/camofox-browser" }
 variable "CTX_BROWSERLESS" { default = "src/browserless" }
 variable "CTX_SEARXNG" { default = "src/searxng" }
 variable "CTX_SEARXNG_BASE" { default = "src/searxng-base" }
-variable "CTX_LIGHTPANDA" { default = "src/lightpanda" }
 
 variable "SHA_CRW" { default = "" }
 variable "SHA_CAMOUFOX" { default = "" }
@@ -29,7 +28,6 @@ variable "SHA_CAMOFOX_BROWSER" { default = "" }
 variable "SHA_BROWSERLESS" { default = "" }
 variable "SHA_SEARXNG" { default = "" }
 variable "SHA_SEARXNG_BASE" { default = "" }
-variable "SHA_LIGHTPANDA" { default = "" }
 
 variable "CAMOUFOX_VERSION" { default = "" }
 variable "CAMOUFOX_RELEASE" { default = "" }
@@ -65,7 +63,7 @@ target "_common" {
 }
 
 group "default" {
-  targets = ["crw", "camofox", "chrome-stealth", "searxng", "lightpanda"]
+  targets = ["crw", "camofox", "chrome-stealth", "searxng"]
 }
 
 target "crw" {
@@ -149,13 +147,4 @@ target "searxng" {
   }
   tags = image("searxng")
   output = output("searxng")
-}
-
-target "lightpanda" {
-  inherits   = ["_common"]
-  context    = CTX_LIGHTPANDA
-  dockerfile = "${BUILD_DIR}/lightpanda.Dockerfile"
-  labels     = oci("https://github.com/lightpanda-io/browser", SHA_LIGHTPANDA)
-  tags       = image("lightpanda")
-  output     = output("lightpanda")
 }

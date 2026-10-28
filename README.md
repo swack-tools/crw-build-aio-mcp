@@ -8,7 +8,9 @@ Run [CRW](https://github.com/fastcrw/crw), the Firecrawl-compatible scraper, loc
 | `impersonated-http` | no browser; mimics Chrome's TLS/HTTP2 fingerprint | inside crw |
 | `camoufox` | Camoufox, a fingerprint-spoofing Firefox fork, behind the camofox-browser REST server | `camofox` container |
 
-No prebuilt app images are pulled. The scripts clone the upstream repos and compile crw, Camoufox (Firefox), camofox-browser, browserless, SearXNG and lightpanda.
+A scrape with no `renderer` set uses plain HTTP (with a Chrome User-Agent), then the `impersonated-http` tier if a site blocks that, then stealth Chrome for pages that need JavaScript. Camoufox is used when a scrape sets `renderer: "camoufox"`.
+
+No prebuilt app images are pulled. The scripts clone the upstream repos and compile crw, Camoufox (Firefox), camofox-browser, browserless and SearXNG.
 
 ## Install a release (no build)
 
@@ -66,10 +68,13 @@ Requirements: Docker with buildx (a containerd image store is needed for `build-
   - A cold build takes hours under emulation.
 - **Images:** `docker-bake.hcl` builds the images.
   - Upstream Dockerfiles that build `FROM` a registry image (`ghcr.io/browserless/base`, `searxng/base:*`) get bake targets built here instead, wired in through `contexts`.
-  - `scripts/prep-sources.sh` patches two upstream Dockerfiles: lightpanda builds our checkout instead of `git clone`-ing, and camofox-browser installs our Camoufox zip instead of downloading a release. The script fails loudly if upstream changes the lines it patches.
+  - `scripts/prep-sources.sh` patches camofox-browser's Dockerfile to install our Camoufox zip instead of downloading a release. It also applies `patches/<name>/*.patch` to the checkouts, and `fetch-sources.sh --update` reverts them before pulling. Either one fails loudly if upstream changes what it patches.
 - **Compose:** `compose.override.yml` is layered on crw's own `docker-compose.yml` and `docker-compose.stealth.yml`, so upstream's settings and hardening still apply.
-  - It swaps in the local images and adds the `camofox` service.
-  - It points crw at that service with `CRW_RENDERER__CAMOUFOX__*`, including `include_in_auto=true`.
+  - It swaps in the local images and adds the `camofox` service, which crw reaches through `CRW_RENDERER__CAMOUFOX__BASE_URL`.
+  - **Stealth by default:** it sets `CRW_RENDERER__MODE=chrome`. Upstream's `auto` mode tries Lightpanda first, which has no stealth and answers most pages, so Lightpanda is neither built nor started.
+  - **User-Agent:** it replaces crw's `CRW/0.0.1` with a Linux Chrome User-Agent. `up.sh` sets the version to match the Chrome inside chrome-stealth.
+  - **Hiding automation:** it launches browserless with `--disable-blink-features=AutomationControlled`, which clears `navigator.webdriver` in the pages crw opens over raw CDP. browserless's stealth plugin doesn't reach those pages.
+  - `patches/crw/stealth-js-only-patch-what-is-missing.patch` stops crw's injected stealth script from defining `navigator.webdriver` on `navigator` itself and from replacing a real `PluginArray`. Bot checks such as bot.sannysoft.com flag both.
 - **Ports:** crw is published on `127.0.0.1:$CRW_HOST_PORT` (default 3000). If the port is busy, `up-stealth` offers the next free one and saves the choice to `.env`.
 - **MCP:** `bin/crw-mcp` runs in proxy mode, pointed at the stack with `CRW_API_URL`.
   - Codex gets `tool_timeout_sec = 300`, because Camoufox scrapes can outlast its 60s default.
@@ -93,10 +98,11 @@ To release, run `just release 0.1.0` on an up-to-date `main`.
 
 ## What is still prebuilt
 
-Building these from source is out of scope: official base images (debian, ubuntu, node, rust, alpine), Playwright's Chromium (browserless), lightpanda's `libc_v8.a`, Mozilla's build toolchains, the Camoufox font bundle, uBlock Origin, yt-dlp, and packages from distro, npm, cargo and PyPI registries.
+Building these from source is out of scope: official base images (debian, ubuntu, node, rust, alpine), Playwright's Chromium (browserless), Mozilla's build toolchains, the Camoufox font bundle, uBlock Origin, yt-dlp, and packages from distro, npm, cargo and PyPI registries.
 
 ## Notes
 
 - **Version risk:** Camoufox `main` can be ahead of the version camofox-browser pins. If the camoufox tier fails, set `CAMOUFOX_REF` to the pinned tag (see `src/camofox-browser/Dockerfile`) and run `just update`.
+- **Camoufox and JavaScript:** crw's Camoufox renderer reads the page as soon as the tab opens and ignores `waitFor`, so pages that build their content with JavaScript can come back incomplete. `test-stealth` reports these as "incomplete render".
 - **Crash reports:** camofox-browser's crash reporter is off (`CAMOFOX_CRASH_REPORT_ENABLED=false`).
 - **Licenses:** browserless is SSPL, and crw and SearXNG are AGPL. Building and running them locally is fine; publishing the images (`just push`) or offering the stack as a service carries their terms.

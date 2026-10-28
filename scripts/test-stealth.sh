@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 1. /v1/capabilities must list all three stealth tiers.
-# 2. A scrape pinned to each tier must succeed and be rendered by that tier.
+# 2. A scrape pinned to each tier must succeed and be rendered by that tier,
+#    and an unpinned (auto) scrape of a JS page must use a stealth tier.
 # 3. Bot-check report (never fails): bot.sannysoft.com through each JS tier,
 #    plus status/challenge detection for any STEALTH_URL=url1,url2 pages.
 source "$(dirname "$0")/lib.sh"
@@ -51,11 +52,18 @@ for tier in TIERS:
     note = "" if ok else f"  error={data.get('error') or data.get('warning') or '-'}"
     print(f"  {'PASS' if ok else 'FAIL'}  {tier:<18} renderedWith={got}  {secs:5.1f}s{note}")
 
-print("\nbot-check report (informational)")
+print("\nbot-check report (auto must use a stealth tier; the rest is informational)")
 print(f"  {'page':<34} {'tier':<18} result")
-for tier in JS_TIERS:
+for tier in [None] + JS_TIERS:
     data, _ = scrape("https://bot.sannysoft.com", tier, ["rawHtml"], waitFor=3000)
-    html = (data.get("data") or {}).get("rawHtml") or ""
+    doc = data.get("data") or {}
+    html = doc.get("rawHtml") or ""
+    if tier is None:
+        got = (doc.get("metadata") or {}).get("renderedWith")
+        tier = f"auto -> {got}"
+        if got not in TIERS:
+            failed = True
+            tier += " (FAIL: not a stealth tier)"
     if not data.get("success") or not html:
         print(f"  {'bot.sannysoft.com':<34} {tier:<18} error: {data.get('error')}")
         continue

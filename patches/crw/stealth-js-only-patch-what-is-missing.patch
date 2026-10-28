@@ -1,0 +1,34 @@
+diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
+index c0ebe4f..f856a8c 100644
+--- a/crates/crw-renderer/src/cdp.rs
++++ b/crates/crw-renderer/src/cdp.rs
+@@ -144,9 +144,13 @@ fn screenshot_max_height_px() -> f64 {
+ /// (Lightpanda throws `Cannot redefine property: webdriver` in iframes) must not
+ /// abort the sections after it.
+ const STEALTH_JS: &str = r#"
+-// 1. Hide navigator.webdriver (primary headless signal for Cloudflare)
++// 1. Hide navigator.webdriver (primary headless signal for Cloudflare). Only
++//    when it is set, and on Navigator.prototype where real browsers keep it:
++//    an own `webdriver` property on `navigator` is itself a bot tell.
+ try {
+-    Object.defineProperty(navigator, 'webdriver', { get: () => false });
++    if (navigator.webdriver) {
++        Object.defineProperty(Navigator.prototype, 'webdriver', { get: () => false, configurable: true });
++    }
+ } catch (_) {}
+ 
+ // 2. Fake chrome runtime object (missing in headless)
+@@ -156,9 +160,11 @@ try {
+     }
+ } catch (_) {}
+ 
+-// 3. Spoof plugins array (headless has 0 plugins)
++// 3. Spoof plugins array (old headless has 0 plugins). New headless Chrome
++//    has the real PDF plugins, and swapping its PluginArray for a plain array
++//    is itself a bot tell, so only fill an empty one.
+ try {
+-    Object.defineProperty(navigator, 'plugins', {
++    if (!navigator.plugins || navigator.plugins.length === 0) Object.defineProperty(navigator, 'plugins', {
+         get: () => {
+             const arr = [
+                 { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer' },
