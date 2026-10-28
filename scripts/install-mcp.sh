@@ -80,6 +80,29 @@ edit_config() {
   log "updated $file (backup alongside)"
 }
 
+# Claude Desktop saves its in-memory settings over its config file while it
+# runs, which drops edits made underneath it, and only reads the file at
+# launch. So it is quit before the edit and reopened after, even when the file
+# already has the entry: the running app may not have loaded it.
+reopen_claude=
+close_claude_desktop() {
+  pgrep -x Claude >/dev/null || return 0
+  if [[ -n "$preview" ]]; then
+    echo "  Claude Desktop is running: it will be quit before this edit and reopened after"
+    return
+  fi
+  log "quitting Claude Desktop"
+  osascript -e 'quit app id "com.anthropic.claudefordesktop"' >/dev/null || true
+  for _ in $(seq 1 30); do
+    if ! pgrep -x Claude >/dev/null; then
+      reopen_claude=1
+      return
+    fi
+    sleep 1
+  done
+  die "Claude Desktop did not quit; quit it yourself, then re-run"
+}
+
 target_claude() {
   log "Claude Code — user scope ($action)"
   if command -v claude >/dev/null; then
@@ -96,7 +119,12 @@ target_claude() {
   fi
 
   log "Claude Desktop ($action)"
+  close_claude_desktop
   edit_config claude-desktop "$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+  if [[ -n "$reopen_claude" ]]; then
+    open -b com.anthropic.claudefordesktop
+    log "reopened Claude Desktop"
+  fi
 }
 
 target_codex() {
@@ -127,5 +155,4 @@ fi
 preview=
 each_target
 log "done"
-[[ " ${targets[*]} " != *" claude "* ]] || warn "restart Claude Desktop to pick up the change"
 [[ " ${targets[*]} " != *" codex "* ]] || warn "restart ChatGPT desktop to pick up the change"
