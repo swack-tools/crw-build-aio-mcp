@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Generate the build inputs that upstream Dockerfiles can't take as-is:
-#   build/lightpanda.Dockerfile       — builds our checkout instead of `git clone`-ing
+#   src/*                             — our patches/<name>/*.patch applied
 #   build/camofox-browser.Dockerfile  — installs our Camoufox zip instead of a release download
 #   src/searxng/searx/version_frozen.py — what upstream's `manage container.build` writes
 # Each patch fails loudly if the upstream line it replaces moves.
@@ -22,10 +22,9 @@ open(out, "w").write("\n".join(lines))
 PY
 }
 
-log "lightpanda: build from src/lightpanda"
-patch_line "$(src_dir lightpanda)/Dockerfile" "$BUILD/lightpanda.Dockerfile" \
-  'RUN git clone --depth 1 https://github.com/lightpanda-io/browser.git' \
-  'COPY . /browser'
+for entry in "${SOURCES[@]}"; do
+  apply_patches "${entry%%|*}"
+done
 
 log "camofox-browser: use dist/camoufox-*-lin.<arch>.zip"
 patch_line "$(src_dir camofox-browser)/Dockerfile" "$BUILD/camofox-browser.Dockerfile.tmp" \

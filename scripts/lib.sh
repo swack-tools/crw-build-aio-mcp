@@ -60,7 +60,6 @@ SOURCES=(
   "browserless|https://github.com/browserless/browserless.git"
   "searxng|https://github.com/searxng/searxng.git"
   "searxng-base|https://codeberg.org/searxng/base.git"
-  "lightpanda|https://github.com/lightpanda-io/browser.git"
 )
 
 env_name() { echo "$1" | tr 'a-z-' 'A-Z_'; }
@@ -79,6 +78,38 @@ src_ref() {
 }
 
 src_sha() { git -C "$(src_dir "$1")" rev-parse HEAD; }
+
+# Our fixes to upstream source live in patches/<name>/*.patch. prep-sources.sh
+# applies them (a no-op when already applied); fetch-sources.sh reverts them
+# before pulling. A patch that no longer applies stops the build.
+patch_files() { compgen -G "$ROOT/patches/$1/*.patch" || true; }
+
+apply_patches() {
+  local name="$1" dir patch override
+  dir="$(src_dir "$name")"
+  override="SRC_$(env_name "$name")"
+  for patch in $(patch_files "$name"); do
+    if [[ -n "${!override:-}" ]]; then
+      warn "$name: $override is your checkout, so it is not patched; apply $patch yourself"
+      return
+    fi
+    git -C "$dir" apply --reverse --check "$patch" 2>/dev/null && continue
+    git -C "$dir" apply --check "$patch" 2>/dev/null ||
+      die "$(basename "$patch") no longer applies to $name: upstream changed, update patches/$name/"
+    git -C "$dir" apply "$patch"
+    log "$name: applied $(basename "$patch")"
+  done
+}
+
+revert_patches() {
+  local dir patch
+  dir="$(src_dir "$1")"
+  for patch in $(patch_files "$1"); do
+    if git -C "$dir" apply --reverse --check "$patch" 2>/dev/null; then
+      git -C "$dir" apply --reverse "$patch"
+    fi
+  done
+}
 
 # Docker arch of this host: arm64 | amd64
 host_arch() {

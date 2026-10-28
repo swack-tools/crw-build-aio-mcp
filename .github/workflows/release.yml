@@ -171,7 +171,7 @@ jobs:
           drop = sys.argv[1]
           env = os.environ
           images = "\n".join(f"- `{env['REGISTRY']}crw-config-{n}:{env['VERSION']}`"
-                             for n in ("crw", "camofox", "chrome-stealth", "searxng", "lightpanda"))
+                             for n in ("crw", "camofox", "chrome-stealth", "searxng"))
           commits = "\n".join(f"| {k.removesuffix('_REF').lower().replace('_', '-')} | `{v}` |"
                               for k, v in (p.split("=", 1) for p in env["REFS"].split()))
           out, skip = [], False

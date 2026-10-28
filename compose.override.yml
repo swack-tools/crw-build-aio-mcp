@@ -1,7 +1,8 @@
 # Layered on src/crw/docker-compose.yml + docker-compose.stealth.yml, so the
 # upstream service settings and hardening stay in effect (see `compose` in
-# scripts/lib.sh). This file only swaps in our locally built images and adds
-# the Camoufox tier. Relative paths here would resolve against src/crw/.
+# scripts/lib.sh). This file swaps in our locally built images, adds the
+# Camoufox tier and makes the stealth tiers crw's default. Relative paths here
+# would resolve against src/crw/.
 services:
   crw:
     image: ${PROJECT:-crw-config}/crw:${TAG:-local}
@@ -13,20 +14,33 @@ services:
     environment:
       - CRW_RENDERER__IMPERSONATED__ENABLED=true
       - CRW_RENDERER__CAMOUFOX__BASE_URL=http://camofox:9377
-      - CRW_RENDERER__CAMOUFOX__INCLUDE_IN_AUTO=true
-    depends_on:
+      # Auto mode's JS renderer is stealth Chrome. Upstream's auto tries
+      # Lightpanda first, which has no stealth and answers most pages, so it
+      # is left out; Camoufox is reachable with renderer = "camoufox".
+      - CRW_RENDERER__MODE=chrome
+      # crw sends this User-Agent from every tier (upstream's is "CRW/0.0.1").
+      # scripts/up.sh sets CRW_USER_AGENT to match chrome-stealth's Chrome.
+      - CRW_CRAWLER__USER_AGENT=${CRW_USER_AGENT:-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36}
+      # launch = {"stealth": true, "args": ["--disable-blink-features=AutomationControlled"]}:
+      # the flag clears navigator.webdriver in pages crw opens over raw CDP,
+      # which browserless's stealth plugin doesn't reach. A separate
+      # `stealth=true` parameter would replace this launch value.
+      - CRW_RENDERER__CHROME__WS_URL=ws://chrome-stealth:3000/chromium?token=${BROWSERLESS_TOKEN:-crwtest}&launch=%7B%22stealth%22%3Atrue%2C%22args%22%3A%5B%22--disable-blink-features%3DAutomationControlled%22%5D%7D
+    depends_on: !override
       camofox:
         condition: service_healthy
       chrome-stealth:
+        condition: service_healthy
+      searxng:
         condition: service_healthy
 
   searxng:
     image: ${PROJECT:-crw-config}/searxng:${TAG:-local}
     pull_policy: never
 
+  # Unused with mode = chrome, so it is neither built nor started.
   lightpanda:
-    image: ${PROJECT:-crw-config}/lightpanda:${TAG:-local}
-    pull_policy: never
+    profiles: ["lightpanda"]
 
   chrome-stealth:
     image: ${PROJECT:-crw-config}/chrome-stealth:${TAG:-local}

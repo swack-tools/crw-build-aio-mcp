@@ -10,7 +10,7 @@ usage: crw-aio <command>
   down                   stop it
   update                 pull this release's images again and restart
   status                 list the containers
-  logs [service...]      follow logs (crw, camofox, chrome-stealth, searxng, lightpanda)
+  logs [service...]      follow logs (crw, camofox, chrome-stealth, searxng)
   test                   scrape through each stealth tier, plus a bot-check report
   mcp install|uninstall [claude|codex|all] [--dry-run] [--yes]
                          register the crw MCP server (shows the changes, asks first)

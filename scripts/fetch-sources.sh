@@ -33,6 +33,7 @@ for entry in "${SOURCES[@]}"; do
       summary+=("$name|$old|already cloned (just update to pull)")
       continue
     fi
+    revert_patches "$name"
     git -C "$dir" fetch --quiet --tags --force origin
   else
     log "cloning $name"

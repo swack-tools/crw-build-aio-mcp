@@ -20,7 +20,7 @@ for entry in "${SOURCES[@]}"; do
 done
 
 python3 -I - "$ROOT" "${REGISTRY:-}" "$PROJECT" "${shas[@]}" <<'PY'
-import hashlib, json, subprocess, sys
+import glob, hashlib, json, os, subprocess, sys
 root, registry, project, pairs = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
 sha = dict(p.split("=", 1) for p in pairs)
 
@@ -35,9 +35,9 @@ IMAGES = {
     "camofox": ["camofox-browser", "camoufox"],
     "chrome-stealth": ["browserless"],
     "searxng": ["searxng", "searxng-base"],
-    "lightpanda": ["lightpanda"],
 }
-common = recipe("docker-bake.hcl", "scripts/prep-sources.sh", "scripts/build-images.sh")
+patches = sorted(os.path.relpath(p, root) for p in glob.glob(f"{root}/patches/*/*.patch"))
+common = recipe("docker-bake.hcl", "scripts/prep-sources.sh", "scripts/build-images.sh", *patches)
 camoufox = recipe("scripts/build-camoufox.sh")
 keys = {}
 for image, sources in IMAGES.items():
