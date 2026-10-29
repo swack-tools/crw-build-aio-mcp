@@ -1,5 +1,5 @@
 diff --git a/crates/crw-extract/src/lib.rs b/crates/crw-extract/src/lib.rs
-index c4536cfb..2c34471d 100644
+index c4536cfb..a3abd3a1 100644
 --- a/crates/crw-extract/src/lib.rs
 +++ b/crates/crw-extract/src/lib.rs
 @@ -1107,7 +1107,7 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
@@ -11,31 +11,51 @@ index c4536cfb..2c34471d 100644
                  paragraphs.push(s.to_string());
              }
          });
-@@ -1123,6 +1123,23 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
+@@ -1123,6 +1123,43 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
      Some(joined)
  }
  
 +/// Whether a captured JSON string reads as text for a person. Pages also fetch
 +/// JSON whose long strings are anti-bot sensor payloads (PerimeterX's base64
 +/// `ob` field), bundled JavaScript or CSS; taken for prose, they became the
-+/// whole markdown of chegg.com and homedepot.com. Prose has spaces between
-+/// short words and little code punctuation.
++/// whole markdown of chegg.com and homedepot.com. Prose has little code
++/// punctuation, and either spaces between short words or, in scripts written
++/// without spaces (Chinese, Japanese, Thai...), mostly that script's letters.
 +fn looks_like_prose(s: &str) -> bool {
-+    let words: Vec<&str> = s.split_whitespace().collect();
-+    if words.len() < 8 || words.iter().any(|w| w.chars().count() > 60) {
-+        return false;
-+    }
++    let chars = s.chars().count();
 +    let code = s
 +        .chars()
 +        .filter(|c| matches!(c, '{' | '}' | ';' | '=' | '(' | ')' | '<' | '>'))
 +        .count();
-+    code * 50 <= s.chars().count()
++    if code * 50 > chars {
++        return false;
++    }
++    let unspaced = s.chars().filter(|&c| is_unspaced_script(c)).count();
++    if unspaced * 10 >= chars * 3 {
++        return true;
++    }
++    let words: Vec<&str> = s.split_whitespace().collect();
++    words.len() >= 8 && words.iter().all(|w| w.chars().count() <= 60)
++}
++
++/// Letters of scripts that don't put spaces between words.
++fn is_unspaced_script(c: char) -> bool {
++    matches!(c,
++        '\u{3040}'..='\u{30FF}'   // Hiragana, Katakana
++        | '\u{3400}'..='\u{4DBF}' // CJK Extension A
++        | '\u{4E00}'..='\u{9FFF}' // CJK Unified Ideographs
++        | '\u{F900}'..='\u{FAFF}' // CJK Compatibility Ideographs
++        | '\u{0E00}'..='\u{0EFF}' // Thai, Lao
++        | '\u{1000}'..='\u{109F}' // Myanmar
++        | '\u{1780}'..='\u{17FF}' // Khmer
++        | '\u{0F00}'..='\u{0FFF}' // Tibetan
++    )
 +}
 +
  fn walk_json_strings(value: &serde_json::Value, on_string: &mut dyn FnMut(&str)) {
      match value {
          serde_json::Value::String(s) => {
-@@ -1224,11 +1241,15 @@ mod private_tests {
+@@ -1224,11 +1261,15 @@ mod private_tests {
  
      #[test]
      fn xhr_extract_collects_long_string_fields() {
@@ -54,7 +74,7 @@ index c4536cfb..2c34471d 100644
              "url": "https://example.com/should/skip",
          })
          .to_string();
-@@ -1241,13 +1262,45 @@ mod private_tests {
+@@ -1241,13 +1282,65 @@ mod private_tests {
              body_size_bytes: 800,
          }];
          let got = extract_xhr_text(&resp).expect("expected long-text fields");
@@ -98,6 +118,26 @@ index c4536cfb..2c34471d 100644
 +        assert!(got.contains("Study smarter"));
 +        assert!(!got.contains("Dw8PDykp"));
 +        assert!(!got.contains("amigoConfig"));
++    }
++
++    #[test]
++    fn xhr_extract_keeps_text_written_without_spaces() {
++        let ja = "東京都は火曜日、図書館の開館時間を延長する方針を明らかにした。学生や夜間に働く人の利用を見込んでおり、春まで試験的に実施する。";
++        let zh = "市议会周二投票决定延长图书馆的开放时间。居民表示，延长晚间开放时间将有助于学生和轮班工人，试点计划将持续到春季。";
++        let th = "สภาเมืองลงมติเมื่อวันอังคารให้ขยายเวลาเปิดห้องสมุดเพื่อช่วยนักเรียนและผู้ที่ทำงานกะกลางคืน";
++        let body = serde_json::json!({ "ja": ja, "zh": zh, "th": th }).to_string();
++        let resp = vec![CapturedNetworkResponse {
++            url: "https://api.example.jp/article/1".into(),
++            request_id: "1".into(),
++            status: 200,
++            mime_type: Some("application/json".into()),
++            body_size_bytes: body.len(),
++            body: Some(body),
++        }];
++        let got = extract_xhr_text(&resp).expect("unspaced prose is text");
++        for text in [ja, zh, th] {
++            assert!(got.contains(text), "kept: {text}");
++        }
 +    }
 +
      #[test]
