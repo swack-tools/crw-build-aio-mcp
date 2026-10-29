@@ -62,11 +62,17 @@ def sannysoft(html, md):
     # filling the table when the DOM was read.
     if sum(counts.values()) < 20:
         return False, f"incomplete render ({sum(counts.values())} checks)"
-    # Firefox has no window.chrome, so Camoufox failing "Chrome (New)" is expected.
+    # Expected failures: Firefox has no window.chrome, so Camoufox fails
+    # "Chrome (New)", and chrome-stealth keeps WebGL off on purpose (see
+    # docker/chrome-stealth/start.sh), which fails the two WebGL rows.
     firefox = re.search(r'id="user-agent-result"[^>]*>[^<]*Firefox/', html)
-    expected = 1 if firefox and re.search(r'class="[^"]*\bfailed\b[^"]*"[^>]*id="chrome-result"', html) else 0
-    note = " (Chrome row: expected for Firefox)" if expected else ""
-    return counts["failed"] == expected, f"passed={counts['passed']} warn={counts['warn']} failed={counts['failed']}{note}"
+    expected = []
+    if firefox and re.search(r'class="[^"]*\bfailed\b[^"]*"[^>]*id="chrome-result"', html):
+        expected.append("Chrome")
+    expected += [row for row in ("webgl-vendor", "webgl-renderer")
+                 if re.search(rf'id="{row}" class="failed">Canvas has no webgl context', html)]
+    note = f" (expected: {', '.join(expected)})" if expected else ""
+    return counts["failed"] == len(expected), f"passed={counts['passed']} warn={counts['warn']} failed={counts['failed']}{note}"
 
 
 def deviceandbrowserinfo(html, md):

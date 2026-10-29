@@ -31,13 +31,17 @@ xprop -root -f _NET_WORKAREA 32c -set _NET_WORKAREA "0, 0, $width, $((height - T
 profile="$(mktemp -d)"
 
 node "$(dirname "$0")/chrome-stealth-relay.js" "$PORT" $((PORT + 1)) &
+# Moves the pointer over each page, and clicks Cloudflare's Turnstile checkbox
+# when a page shows one (pointer.js).
+node "$(dirname "$0")/chrome-stealth-pointer.js" $((PORT + 1)) "$width" $((height - TASKBAR)) &
 
 # --no-sandbox: the container has no user namespaces.
-# --ignore-gpu-blocklist: with no GPU, Chrome turns WebGL off, and a browser
-# without WebGL stands out. This lets it use Mesa's software renderer
-# (llvmpipe), as a Linux machine without GPU drivers does. SwiftShader
-# (--enable-unsafe-swiftshader) is the other way to get WebGL, and
-# Cloudflare's challenge fails it.
+# WebGL stays off, as Chrome leaves it on a machine with no usable GPU. Each
+# way of turning it on gets caught by a real anti-bot vendor: Mesa's software
+# renderer (--ignore-gpu-blocklist) by Akamai, the same renderer under a real
+# GPU's name by DataDome, and SwiftShader (--enable-unsafe-swiftshader) by
+# Cloudflare. With it off all three let Chrome through; fingerprint test
+# pages note the missing WebGL.
 # The three background flags stop Chrome throttling the windows crw opens
 # behind each other; occluded windows would report themselves hidden.
 "$CHROME" \
@@ -48,7 +52,6 @@ node "$(dirname "$0")/chrome-stealth-relay.js" "$PORT" $((PORT + 1)) &
   --no-default-browser-check \
   --password-store=basic \
   --lang=en-US \
-  --ignore-gpu-blocklist \
   --window-position=0,0 \
   --window-size="$width,$((height - TASKBAR))" \
   --disable-background-timer-throttling \
@@ -57,5 +60,5 @@ node "$(dirname "$0")/chrome-stealth-relay.js" "$PORT" $((PORT + 1)) &
   "$@" \
   about:blank &
 
-# Exit when any of the three does, so compose restarts the whole set.
+# Exit when any of them does, so compose restarts the whole set.
 wait -n

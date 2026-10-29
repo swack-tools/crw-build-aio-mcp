@@ -9,7 +9,8 @@ server for Claude and Codex, on Apple Silicon Macs.
   camoufox            Camoufox, a fingerprint-spoofing Firefox fork
 
 Every image is built from upstream source by
-https://github.com/swack-tools/crw-build-aio-mcp and pulled from Docker Hub:
+https://github.com/swack-tools/crw-build-aio-mcp (Chrome is Google's stable
+release) and pulled from Docker Hub:
 @IMAGES@
 
 Requirements
@@ -35,6 +36,9 @@ Run it again from a newer disk image to upgrade.
 
 Use
 ---
+Ask Claude or Codex to scrape a page; there is no need to pick a renderer.
+crw renders it in Chrome and, if Chrome is blocked, in Camoufox.
+
   crw-aio status | logs | test | down | up | update
   crw-aio mcp install claude      only Claude (or: codex)
   crw-aio uninstall
@@ -42,6 +46,5 @@ Use
 Licenses
 --------
 crw and SearXNG are AGPL-3.0; Camoufox is MPL-2.0; Google Chrome is under
-Google's Chrome terms of service.
-Running them locally is fine. Offering this stack to others as a service
-carries those licenses' terms.
+Google's Chrome terms of service. Running them locally is fine. Offering this
+stack to others as a service carries those licenses' terms.
