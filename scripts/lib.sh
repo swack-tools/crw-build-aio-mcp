@@ -103,7 +103,8 @@ apply_patches() {
 revert_patches() {
   local dir patch
   dir="$(src_dir "$1")"
-  for patch in $(patch_files "$1"); do
+  # Last applied first: a later patch can build on an earlier one's lines.
+  for patch in $(patch_files "$1" | sort -r); do
     if git -C "$dir" apply --reverse --check "$patch" 2>/dev/null; then
       git -C "$dir" apply --reverse "$patch"
     fi
