@@ -5,7 +5,7 @@ CRW (a Firecrawl-compatible scraper) with all three stealth tiers, plus its MCP
 server for Claude and Codex, on Apple Silicon Macs.
 
   impersonated-http   no browser; mimics Chrome's TLS/HTTP2 fingerprint
-  chrome              desktop Chrome on a virtual display, over plain CDP
+  chrome              Google Chrome on a virtual display, over plain CDP
   camoufox            Camoufox, a fingerprint-spoofing Firefox fork
 
 Every image is built from upstream source by
@@ -41,6 +41,7 @@ Use
 
 Licenses
 --------
-browserless is SSPL-1.0; crw and SearXNG are AGPL-3.0; Camoufox is MPL-2.0.
+crw and SearXNG are AGPL-3.0; Camoufox is MPL-2.0; Google Chrome is under
+Google's Chrome terms of service.
 Running them locally is fine. Offering this stack to others as a service
 carries those licenses' terms.

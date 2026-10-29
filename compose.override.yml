@@ -14,17 +14,30 @@ services:
     environment:
       - CRW_RENDERER__IMPERSONATED__ENABLED=true
       - CRW_RENDERER__CAMOUFOX__BASE_URL=http://camofox:9377
-      # Auto mode's JS renderer is stealth Chrome. Upstream's auto tries
-      # Lightpanda first, which has no stealth and answers most pages, so it
-      # is left out; Camoufox is reachable with renderer = "camoufox".
+      # Auto mode's JS renderer is stealth Chrome, then Camoufox when Chrome
+      # is blocked. Upstream's auto tries Lightpanda first, which has no
+      # stealth and answers most pages, so it is left out.
       - CRW_RENDERER__MODE=chrome
+      - CRW_RENDERER__CAMOUFOX__INCLUDE_IN_AUTO=true
+      # Render every page in a browser unless the request says renderJs:false.
+      # Upstream's auto starts with plain HTTP and only renders pages that
+      # look unfinished, so a page that fills itself in after load (a bot
+      # check's verdict, say) comes back as its empty shell.
+      - CRW_RENDERER__RENDER_JS_DEFAULT=true
+      # Pages load as they would for a person. Upstream blocks images, fonts,
+      # media and analytics to save time, and pages can tell (a missing image
+      # has no size; a bot check's script may be on the blocked list).
+      - CRW_RENDERER__CHROME_INTERCEPT_RESOURCES=false
       # crw sends this User-Agent from every tier (upstream's is "CRW/0.0.1").
       # scripts/up.sh sets CRW_USER_AGENT to match chrome-stealth's Chrome.
       - CRW_CRAWLER__USER_AGENT=${CRW_USER_AGENT:-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36}
       # A plain Chrome DevTools endpoint, not browserless (see docker/chrome-stealth).
       - CRW_RENDERER__CHROME__WS_URL=ws://chrome-stealth:9222
-      # Upstream's 12s page budget ends Cloudflare's challenge (5-15s) early.
-      - CRW_RENDERER__CHROME_NAV_BUDGET_MS=20000
+      # Up to 24s (8 checks, 3s apart) for an anti-bot challenge to clear.
+      # Upstream checks once, and its 12s page budget ends Cloudflare's
+      # challenge (5-15s) early.
+      - CRW_RENDERER__CHROME_CHALLENGE_MAX_RETRIES=8
+      - CRW_RENDERER__CHROME_NAV_BUDGET_MS=40000
     depends_on: !override
       camofox:
         condition: service_healthy
@@ -46,9 +59,9 @@ services:
     pull_policy: never
     # Only crw talks to it, over the compose network.
     ports: !reset []
-    # Runs a windowed Chrome, not the browserless server, so none of
-    # browserless's settings apply. scripts/up.sh sets CRW_TZ to this
-    # machine's timezone.
+    # Google Chrome on a virtual display (docker/chrome-stealth), not the
+    # browserless server upstream runs, so none of browserless's settings
+    # apply. scripts/up.sh sets CRW_TZ to this machine's timezone.
     environment: !override
       - TZ=${CRW_TZ:-UTC}
     # Reaps Chrome's exited child processes.
@@ -69,6 +82,7 @@ services:
       - CAMOFOX_PORT=9377
       - CAMOFOX_CRASH_REPORT_ENABLED=false
       - MAX_OLD_SPACE_SIZE=512
+      - TZ=${CRW_TZ:-UTC}
     shm_size: "2g"
     mem_limit: 4g
     memswap_limit: 4g

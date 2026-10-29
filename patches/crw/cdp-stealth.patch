@@ -1,8 +1,23 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
-index c0ebe4f..6428c22 100644
+index c0ebe4f..7e18164 100644
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
-@@ -143,54 +143,87 @@ fn screenshot_max_height_px() -> f64 {
+@@ -89,6 +89,14 @@ const SPA_CONTENT_FLOOR_CHARS: i64 = 200;
+ /// chatty pages (analytics/polling keep ≥1) so the old ≤0 idle-exit never
+ /// triggered → 8s ceiling burns. ≤2 is the correct "settled" signal.
+ const ALMOST_IDLE_MAX_INFLIGHT: i64 = 2;
++/// Settle after the SPA poll: at least `SETTLE_MIN_MS`, then until the
++/// network has been quiet for `SETTLE_QUIET_MS`, for at most `SETTLE_MAX_MS`.
++/// The poll exits as soon as there is enough text, but pages that check the
++/// browser (bot detectors, anti-bot scripts) run those checks after load and
++/// write the verdict a moment later.
++const SETTLE_MIN_MS: u64 = 1000;
++const SETTLE_QUIET_MS: i64 = 1000;
++const SETTLE_MAX_MS: u64 = 4000;
+ /// Max iterations for the auto-scroll lazy-load pass. 12 viewports usually
+ /// covers infinite-scroll feeds without making it a crawl.
+ const AUTO_SCROLL_MAX_STEPS: u32 = 12;
+@@ -143,54 +151,87 @@ fn screenshot_max_height_px() -> f64 {
  /// Every section is its own `try`: one property a renderer refuses to redefine
  /// (Lightpanda throws `Cannot redefine property: webdriver` in iframes) must not
  /// abort the sections after it.
@@ -116,7 +131,7 @@ index c0ebe4f..6428c22 100644
          Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
              get: function() {
                  const w = origHTMLElement.call(this);
-@@ -203,37 +236,23 @@ try {
+@@ -203,37 +244,23 @@ try {
  
  // 7. Fix broken toString for overridden functions (anti-detection fingerprinting)
  try {
@@ -169,7 +184,28 @@ index c0ebe4f..6428c22 100644
  "#;
  
  /// One-shot consent banner / CMP dismissal. Runs once after page load,
-@@ -3025,7 +3044,10 @@ impl CdpRenderer {
+@@ -2127,11 +2154,18 @@ fn is_challenge_page(html: &str) -> bool {
+         return false;
+     }
+     let lower = html.to_lowercase();
++    // Not the bare `challenge-platform` directory, nor "challenge" next to
++    // "cloudflare": Cloudflare adds its telemetry script
++    // (`/cdn-cgi/challenge-platform/scripts/jsd/main.js`) to ordinary pages,
++    // including the one a cleared challenge reloads into, so either one kept
++    // the retry loop below polling a page that had already cleared.
++    // `challenge-platform/h/` is the challenge's own orchestrator (see
++    // `detector::looks_like_cloudflare_challenge`).
+     lower.contains("just a moment")
+         || lower.contains("cf-browser-verification")
+         || lower.contains("cf-challenge-running")
+-        || lower.contains("challenge-platform")
+-        || (lower.contains("challenge") && lower.contains("cloudflare"))
++        || lower.contains("challenge-platform/h/")
++        || lower.contains("_cf_chl_opt")
+         || lower.contains("attention required")
+ }
+ 
+@@ -3025,7 +3059,10 @@ impl CdpRenderer {
              .ok_or_else(|| CrwError::RendererError("CDP attach did not return sessionId".into()))?
              .to_string();
  
@@ -181,7 +217,7 @@ index c0ebe4f..6428c22 100644
              conn.send_recv(
                  method,
                  serde_json::json!({}),
-@@ -3103,7 +3125,17 @@ impl CdpRenderer {
+@@ -3103,7 +3140,17 @@ impl CdpRenderer {
          // browser's own", so the language lands without touching the UA, and
          // the header stays in step with the script and the locale override.
          let accept_language = lang_locale.map(|l| l.cdp_accept_language());
@@ -200,7 +236,7 @@ index c0ebe4f..6428c22 100644
              conn.send_recv(
                  "Network.setUserAgentOverride",
                  ua_override_params(effective_ua, accept_language.as_deref()),
-@@ -3421,6 +3453,29 @@ impl CdpRenderer {
+@@ -3421,6 +3468,29 @@ impl CdpRenderer {
                      (html, true)
                  }
              };
@@ -230,3 +266,57 @@ index c0ebe4f..6428c22 100644
              // Screenshot capture runs AFTER the page-load budget race resolves,
              // with its own timeout. A full-page capture of a heavy page must not
              // be cancelled by the nav budget (which closes the WS mid-capture and
+@@ -3700,6 +3770,15 @@ impl CdpRenderer {
+         {
+             tracing::debug!(url = %LogUrl(&url), "SPA selector poll exhausted budget");
+         }
++        if wait_for_ms.is_none() {
++            let settle_end = Instant::now() + Duration::from_millis(SETTLE_MAX_MS);
++            tokio::time::sleep(Duration::from_millis(SETTLE_MIN_MS)).await;
++            while Instant::now() < settle_end
++                && !net.is_settled(SETTLE_QUIET_MS, ALMOST_IDLE_MAX_INFLIGHT)
++            {
++                tokio::time::sleep(Duration::from_millis(SPA_SELECTOR_TICK_MS)).await;
++            }
++        }
+         let t_selector_ms = _sel_t.elapsed().as_millis() as u64;
+ 
+         // 4. Get rendered HTML.
+@@ -4811,8 +4890,15 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn challenge_page_detects_challenge_platform_marker() {
+-        assert!(is_challenge_page("loading challenge-platform assets"));
++    fn challenge_page_detects_challenge_orchestrator_not_telemetry() {
++        assert!(is_challenge_page(
++            "<script src=\"/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1\"></script>"
++        ));
++        assert!(is_challenge_page("<script>window._cf_chl_opt = {};</script>"));
++        // Cloudflare's telemetry loader is on ordinary and cleared pages too.
++        assert!(!is_challenge_page(
++            "<script src=\"/cdn-cgi/challenge-platform/scripts/jsd/main.js\"></script>"
++        ));
+     }
+ 
+     #[test]
+@@ -4821,13 +4907,15 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn challenge_page_requires_both_words_for_generic_challenge_cloudflare_combo() {
+-        // "challenge" alone (no "cloudflare") must NOT trip the detector —
+-        // otherwise any page mentioning a coding challenge would false-positive.
++    fn challenge_page_ignores_pages_that_mention_challenges() {
+         assert!(!is_challenge_page(
+             "<p>Take our coding challenge to join!</p>"
+         ));
+-        assert!(is_challenge_page("<p>cloudflare challenge in progress</p>"));
++        // A cleared challenge's page can name both words (scrapingcourse.com's
++        // is titled "Cloudflare Challenge").
++        assert!(!is_challenge_page(
++            "<title>Cloudflare Challenge - ScrapingCourse.com</title>"
++        ));
+     }
+ 
+     #[test]

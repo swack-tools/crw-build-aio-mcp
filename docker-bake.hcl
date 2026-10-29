@@ -18,14 +18,12 @@ variable "BUILD_DIR" { default = "build" }
 variable "DIST_DIR" { default = "dist" }
 variable "CTX_CRW" { default = "src/crw" }
 variable "CTX_CAMOFOX_BROWSER" { default = "src/camofox-browser" }
-variable "CTX_BROWSERLESS" { default = "src/browserless" }
 variable "CTX_SEARXNG" { default = "src/searxng" }
 variable "CTX_SEARXNG_BASE" { default = "src/searxng-base" }
 
 variable "SHA_CRW" { default = "" }
 variable "SHA_CAMOUFOX" { default = "" }
 variable "SHA_CAMOFOX_BROWSER" { default = "" }
-variable "SHA_BROWSERLESS" { default = "" }
 variable "SHA_SEARXNG" { default = "" }
 variable "SHA_SEARXNG_BASE" { default = "" }
 
@@ -77,7 +75,7 @@ target "crw" {
   output = output("crw")
 }
 
-target "camofox" {
+target "camofox-browser" {
   inherits   = ["_common"]
   context    = CTX_CAMOFOX_BROWSER
   dockerfile = "${BUILD_DIR}/camofox-browser.Dockerfile"
@@ -92,39 +90,30 @@ target "camofox" {
   labels = merge(oci("https://github.com/jo-inc/camofox-browser", SHA_CAMOFOX_BROWSER), {
     "io.github.daijro.camoufox.revision" = SHA_CAMOUFOX
   })
-  tags = image("camofox")
+  tags = image("camofox-browser")
+}
+
+# camofox-browser plus a plugin that clicks Cloudflare's Turnstile checkbox
+# (docker/camofox).
+target "camofox" {
+  inherits = ["_common"]
+  context  = "docker/camofox"
+  contexts = {
+    camofox-browser = "target:camofox-browser"
+  }
+  labels = merge(oci("https://github.com/jo-inc/camofox-browser", SHA_CAMOFOX_BROWSER), {
+    "io.github.daijro.camoufox.revision" = SHA_CAMOUFOX
+  })
+  tags   = image("camofox")
   output = output("camofox")
 }
 
-target "browserless-base" {
-  inherits   = ["_common"]
-  context    = CTX_BROWSERLESS
-  dockerfile = "docker/base/Dockerfile"
-  labels     = oci("https://github.com/browserless/browserless", SHA_BROWSERLESS)
-  tags       = image("browserless-base")
-}
-
-target "browserless-chromium" {
-  inherits   = ["_common"]
-  context    = CTX_BROWSERLESS
-  dockerfile = "docker/chromium/Dockerfile"
-  contexts = {
-    "ghcr.io/browserless/base:latest" = "target:browserless-base"
-  }
-  labels = oci("https://github.com/browserless/browserless", SHA_BROWSERLESS)
-  tags   = image("browserless-chromium")
-}
-
-# The browserless image run as a plain windowed Chrome (docker/chrome-stealth/start.sh).
+# Google Chrome on a virtual display (docker/chrome-stealth).
 target "chrome-stealth" {
   inherits = ["_common"]
   context  = "docker/chrome-stealth"
-  contexts = {
-    browserless-chromium = "target:browserless-chromium"
-  }
-  labels = oci("https://github.com/browserless/browserless", SHA_BROWSERLESS)
-  tags   = image("chrome-stealth")
-  output = output("chrome-stealth")
+  tags     = image("chrome-stealth")
+  output   = output("chrome-stealth")
 }
 
 target "searxng-base-builder" {

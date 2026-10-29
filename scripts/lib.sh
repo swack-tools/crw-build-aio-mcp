@@ -57,7 +57,6 @@ SOURCES=(
   "crw|https://github.com/fastcrw/crw.git"
   "camoufox|https://github.com/daijro/camoufox.git"
   "camofox-browser|https://github.com/jo-inc/camofox-browser.git"
-  "browserless|https://github.com/browserless/browserless.git"
   "searxng|https://github.com/searxng/searxng.git"
   "searxng-base|https://codeberg.org/searxng/base.git"
 )
