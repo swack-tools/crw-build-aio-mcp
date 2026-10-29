@@ -80,8 +80,10 @@ src_sha() { git -C "$(src_dir "$1")" rev-parse HEAD; }
 
 # Our fixes to upstream source live in patches/<name>/*.patch. prep-sources.sh
 # applies them (a no-op when already applied); fetch-sources.sh reverts them
-# before pulling. A patch that no longer applies stops the build.
-patch_files() { compgen -G "$ROOT/patches/$1/*.patch" || true; }
+# before pulling. A patch that no longer applies stops the build. They apply in
+# name order, since a later one can build on an earlier one's lines (compgen
+# lists them in directory order).
+patch_files() { compgen -G "$ROOT/patches/$1/*.patch" | LC_ALL=C sort || true; }
 
 apply_patches() {
   local name="$1" dir patch override
@@ -104,7 +106,7 @@ revert_patches() {
   local dir patch
   dir="$(src_dir "$1")"
   # Last applied first: a later patch can build on an earlier one's lines.
-  for patch in $(patch_files "$1" | sort -r); do
+  for patch in $(patch_files "$1" | LC_ALL=C sort -r); do
     if git -C "$dir" apply --reverse --check "$patch" 2>/dev/null; then
       git -C "$dir" apply --reverse "$patch"
     fi
