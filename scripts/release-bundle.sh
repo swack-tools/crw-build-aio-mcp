@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Assemble the release bundle (the DMG's contents):
-#   install.sh, README.txt
+#   install.sh, README.txt, LICENSE
 #   payload/compose.yml        upstream compose + our override, flattened, images
 #                              pinned to <prefix><name>:<tag>, every service on
 #   payload/<bind mounts>      the upstream config files compose.yml mounts
@@ -78,6 +78,7 @@ SEARXNG_SECRET_KEY=
 EOF
 
 cp "$ROOT/release/install.sh" "$out/"
+cp "$ROOT/LICENSE" "$out/"
 python3 -I - "$ROOT/release/README.txt" "$out/README.txt" "$version" "$images" <<'PY'
 import sys
 src, dst, version, images = sys.argv[1:]
