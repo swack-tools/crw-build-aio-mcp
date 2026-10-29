@@ -32,4 +32,4 @@ jobs:
           path-to-signatures: signatures/cla.json
           path-to-document: https://github.com/${{ github.repository }}/blob/main/CLA.md
           branch: cla-signatures
-          allowlist: swackhamer,xbmc4lyfe,dependabot[bot],github-actions[bot]
+          allowlist: swackhamer,dependabot[bot],github-actions[bot]
