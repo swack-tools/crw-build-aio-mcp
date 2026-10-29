@@ -163,3 +163,11 @@ Building these from source is out of scope: official base images (debian, ubuntu
 - **Behavior checks:** the pointer moves, but a scrape never types or fills in a form, so tests that score those (deviceandbrowserinfo.com's interaction test) have nothing to score.
 - **Crash reports:** camofox-browser's crash reporter is off (`CAMOFOX_CRASH_REPORT_ENABLED=false`).
 - **Licenses:** crw and SearXNG are AGPL, and the chrome-stealth image contains Google Chrome, which is under Google's Chrome terms of service. Building and running them locally is fine; publishing the images (`just push`) or offering the stack as a service carries their terms.
+
+## License
+
+This project is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE) (SPDX: `AGPL-3.0-or-later`). If you modify it and distribute it, or let people use your modified version over a network (for example, as a hosted MCP or scraping service), you must offer those users the complete source of your version under the same license.
+
+The bundled upstream projects keep their own licenses: crw and SearXNG are AGPL-3.0, Camoufox is MPL-2.0, and Google Chrome is under Google's terms of service. The crw patches in `patches/crw/` are modifications of crw and are covered by its AGPL as well as this one.
+
+Contributions are welcome under the [Contributor License Agreement](CLA.md); see [CONTRIBUTING.md](CONTRIBUTING.md).
