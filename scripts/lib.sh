@@ -78,6 +78,24 @@ src_ref() {
 
 src_sha() { git -C "$(src_dir "$1")" rev-parse HEAD; }
 
+sha256() { if command -v sha256sum >/dev/null; then sha256sum; else shasum -a 256; fi | cut -d' ' -f1; }
+
+# What a Camoufox compile depends on: upstream's browser/ tree (the builder's
+# whole context, minus its tests), our patches/camoufox/, and build-camoufox.sh.
+# Upstream commits most days, mostly outside browser/ (README, the Python and
+# TypeScript libraries), so keying on the commit would recompile for nothing.
+# Prints <browser-hash:12>-<script-hash:8>, the camoufox-dist tag prefix.
+camoufox_key() {
+  local src tree script patch
+  src="$(src_dir camoufox)"
+  tree="$({
+    git -C "$src" ls-tree -r HEAD -- browser | grep -v $'\tbrowser/tests/'
+    for patch in $(patch_files camoufox); do cat "$patch"; done
+  } | sha256)"
+  script="$(sha256 < "$ROOT/scripts/build-camoufox.sh")"
+  echo "${tree:0:12}-${script:0:8}"
+}
+
 # Our fixes to upstream source live in patches/<name>/*.patch. prep-sources.sh
 # applies them (a no-op when already applied); fetch-sources.sh reverts them
 # before pulling. A patch that no longer applies stops the build. They apply in

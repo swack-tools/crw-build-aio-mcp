@@ -13,6 +13,11 @@ variable "PUSH_BY_DIGEST" { default = false }
 # Where camofox gets the Camoufox zips: dist/ by default, or an image holding
 # them, e.g. "docker-image://docker.io/you/crw-config-camoufox-dist:<key>-arm64".
 variable "CAMOUFOX_DIST" { default = "" }
+# A registry repo for build cache, e.g. "docker.io/you/crw-config-buildcache"
+# (CI sets it). crw's cargo-chef dependency layer is kept there as
+# <repo>:crw-<arch>, so a crw change that leaves Cargo.lock alone skips
+# recompiling its dependencies. Used only for single-platform builds.
+variable "BUILD_CACHE" { default = "" }
 
 variable "BUILD_DIR" { default = "build" }
 variable "DIST_DIR" { default = "dist" }
@@ -48,6 +53,16 @@ function "output" {
   result = PUSH_BY_DIGEST ? ["type=image,name=${repo(name)},push-by-digest=true,name-canonical=true,push=true"] : []
 }
 
+function "cache_from" {
+  params = [name]
+  result = BUILD_CACHE == "" || length(split(",", PLATFORMS)) != 1 || PLATFORMS == "" ? [] : ["type=registry,ref=${BUILD_CACHE}:${name}-${replace(PLATFORMS, "linux/", "")}"]
+}
+
+function "cache_to" {
+  params = [name]
+  result = [for c in cache_from(name) : "${c},mode=max,ignore-error=true"]
+}
+
 function "oci" {
   params = [url, sha]
   result = {
@@ -70,9 +85,11 @@ target "crw" {
   args = {
     CARGO_PKGS = "-p crw-server --features cdp,impersonated,camoufox -p crw-mcp -p crw-cli"
   }
-  labels = oci("https://github.com/fastcrw/crw", SHA_CRW)
-  tags   = image("crw")
-  output = output("crw")
+  labels     = oci("https://github.com/fastcrw/crw", SHA_CRW)
+  tags       = image("crw")
+  output     = output("crw")
+  cache-from = cache_from("crw")
+  cache-to   = cache_to("crw")
 }
 
 target "camofox-browser" {

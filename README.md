@@ -64,8 +64,8 @@ Requirements: Docker with buildx (a containerd image store is needed for `build-
 - **Camoufox:** `scripts/build-camoufox.sh` runs upstream's own builder image (`browser/Dockerfile`) and writes `dist/camoufox-<ver>-lin.<arch>.zip`.
   - The builder runs as linux/amd64 and cross-compiles to arm64 or x86_64, which is the path upstream tests.
   - Its base image is pinned to `ubuntu:24.04` because `26.04`'s tar fails under Rosetta.
-  - Toolchains and ccache are kept in a named Docker volume, so rebuilds are incremental.
-  - A cold build takes hours under emulation.
+  - Toolchains are kept in a named Docker volume per Firefox version, and ccache in one that outlives versions, so rebuilds are incremental.
+  - A cold build takes hours under emulation. To skip it, set `CAMOUFOX_DIST_REGISTRY=docker.io/<user>/` (or `REGISTRY`) in `.env`. The script then fetches the zip CI built from the same inputs, in about a minute, and compiles only when there is none. `CAMOUFOX_PULL=0` or `FORCE=1` always compiles.
 - **Images:** `docker-bake.hcl` builds the images.
   - Upstream Dockerfiles that build `FROM` a registry image (`searxng/base:*`) get bake targets built here instead, wired in through `contexts`.
   - `scripts/prep-sources.sh` patches camofox-browser's Dockerfile to install our Camoufox zip instead of downloading a release. It also applies `patches/<name>/*.patch` to the checkouts, and `fetch-sources.sh --update` reverts them before pulling. Either one fails loudly if upstream changes what it patches.
@@ -144,8 +144,9 @@ GitHub Actions publishes multi-arch (amd64 + arm64) images to Docker Hub as `<DO
 | `nightly.yml` | daily | Rebuilds what changed upstream and tags `nightly` and `nightly-YYYYMMDD`. |
 | `release.yml` | `v*` tag | Tags the images `<version>` and `latest`. Builds, signs and notarizes the disk image (`crw-mcp` plus a compose bundle pinned to those images), then publishes the draft release. |
 
-- **Skipping unchanged images:** `scripts/ci-plan.sh` pins each upstream to its current commit. Each image gets a key from its inputs (those commits plus this repo's build recipe) and is pushed as `src-<key>`. A run whose key already exists only retags.
-- **Camoufox:** compiled only when its commit changes, on a free x86_64 runner (about 3–4 hours). The zips are kept on Docker Hub as `crw-config-camoufox-dist:<key>-<arch>`.
+- **Skipping unchanged images:** `scripts/ci-plan.sh` pins each upstream to its current commit. Each image gets a key from its own inputs (its upstreams' commits, their `patches/`, its `docker/<name>/` files and the shared bake recipe) and is pushed as `src-<key>`. A run whose key already exists only retags, so a change to one image rebuilds only that image.
+- **Camoufox:** compiled only when its build inputs change, on a free x86_64 runner (about 2h10m per arch). The key (`camoufox_key` in `scripts/lib.sh`) hashes upstream's `browser/` tree minus its tests, `patches/camoufox/` and `build-camoufox.sh`. Upstream's README, docs and Python and TypeScript libraries change most days and don't trigger a compile. The zips are kept on Docker Hub as `crw-config-camoufox-dist:<key>-<arch>`.
+- **crw build cache:** crw's cargo-chef dependency layer is cached per arch in `crw-config-buildcache` on Docker Hub, so a crw change that leaves its dependencies alone skips recompiling them.
 - **Chrome:** chrome-stealth's key includes Google's current Chrome stable version, so the nightly picks up each Chrome release.
 - **Secrets:** the swack-tools org secrets `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` and `APPLE_*` (the same Developer ID setup as update-all). Without the Apple secrets, a release still ships, unsigned.
 

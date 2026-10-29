@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # CI: pin every upstream to the commit its checkout is at, and give each image
-# a key derived from its inputs (upstream commits + this repo's build recipe).
+# a key derived from its own inputs (upstream commits + the parts of this repo's
+# build recipe it uses), so a change to one image's files rebuilds only it.
 # An image is pushed as <name>:src-<key>, so a run whose key already exists in
 # the registry reuses it instead of rebuilding.
 # Prints GITHUB_OUTPUT lines:
@@ -19,9 +20,9 @@ for entry in "${SOURCES[@]}"; do
   shas+=("$name=$(src_sha "$name")")
 done
 
-python3 -I - "$ROOT" "${REGISTRY:-}" "$PROJECT" "${shas[@]}" <<'PY'
+python3 -I - "$ROOT" "${REGISTRY:-}" "$PROJECT" "$(camoufox_key)" "${shas[@]}" <<'PY'
 import glob, hashlib, json, os, re, subprocess, sys, urllib.request
-root, registry, project, pairs = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+root, registry, project, camoufox_key, pairs = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
 sha = dict(p.split("=", 1) for p in pairs)
 
 def digest(*parts):
@@ -30,16 +31,17 @@ def digest(*parts):
 def recipe(*files):
     return digest(*(open(f"{root}/{f}").read() for f in files))
 
+# Image -> the upstreams it is built from. Camoufox counts through
+# camoufox_key (its browser/ build inputs), not its commit.
 IMAGES = {
     "crw": ["crw"],
-    "camofox": ["camofox-browser", "camoufox"],
+    "camofox": ["camofox-browser"],
     "chrome-stealth": [],
     "searxng": ["searxng", "searxng-base"],
 }
-patches = sorted(os.path.relpath(p, root) for p in glob.glob(f"{root}/patches/*/*.patch"))
-ours = sorted(os.path.relpath(p, root) for p in glob.glob(f"{root}/docker/**/*", recursive=True) if os.path.isfile(p))
-common = recipe("docker-bake.hcl", "scripts/prep-sources.sh", "scripts/build-images.sh", *patches, *ours)
-camoufox = recipe("scripts/build-camoufox.sh")
+def files(pattern):
+    return sorted(os.path.relpath(p, root) for p in glob.glob(f"{root}/{pattern}", recursive=True) if os.path.isfile(p))
+common = recipe("docker-bake.hcl", "scripts/prep-sources.sh", "scripts/build-images.sh")
 
 # chrome-stealth installs the current Chrome stable from Google's repository,
 # so a new Chrome release is what changes it.
@@ -50,9 +52,13 @@ def chrome_stable(arch):
 chrome = [f"chrome-{arch}={chrome_stable(arch)}" for arch in ("amd64", "arm64")]
 keys = {}
 for image, sources in IMAGES.items():
+    # Its own docker/<image>/ files and the patches to its upstreams.
+    ours = files(f"docker/{image}/**/*") + [p for s in sources for p in files(f"patches/{s}/*.patch")]
     parts = [image, common] + [f"{s}={sha[s]}" for s in sources]
+    if ours:
+        parts.append(recipe(*ours))
     if image == "camofox":
-        parts.append(camoufox)
+        parts.append(f"camoufox={camoufox_key}")
     if image == "chrome-stealth":
         parts += chrome
     keys[image] = digest(*parts)[:16]
@@ -60,7 +66,6 @@ for image, sources in IMAGES.items():
 refs = " ".join(f"{name.upper().replace('-', '_')}_REF={value}" for name, value in sha.items())
 print(f"refs={refs}")
 print(f"keys={json.dumps(keys)}")
-camoufox_key = f"{sha['camoufox'][:12]}-{camoufox[:8]}"
 print(f"camoufox_key={camoufox_key}")
 
 if registry:
