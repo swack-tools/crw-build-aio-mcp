@@ -1,0 +1,541 @@
+diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
+index 1826152..9ddb315 100644
+--- a/crates/crw-renderer/src/lib.rs
++++ b/crates/crw-renderer/src/lib.rs
+@@ -567,11 +567,7 @@ fn demote_wall_to_ladder_failure(
+     may_substitute: bool,
+ ) -> CrwResult<FetchResult> {
+     match js {
+-        Ok(r)
+-            if may_substitute
+-                && r.block.is_some()
+-                && !detector::looks_like_generic_bot_wall(&fallback.html, fallback.truncated) =>
+-        {
++        Ok(r) if may_substitute && r.block.is_some() && !is_wall(fallback) => {
+             Err(CrwError::RendererError(
+                 r.block
+                     .map(|b| b.reason)
+@@ -582,6 +578,32 @@ fn demote_wall_to_ladder_failure(
+     }
+ }
+ 
++/// A named vendor's block page in `result`, as a verdict: the vendor markers
++/// `detector` matches, or a block `antibot::classify` names from the body
++/// alone. Not from the status: a 403 can carry the real page. Nor its
++/// structural "thin page" verdict, which is not a wall.
++fn vendor_wall(result: &FetchResult) -> Option<crw_core::types::BlockOutcome> {
++    if let Some(vendor) = detector::looks_like_vendor_block(&result.html) {
++        return Some(crw_core::types::BlockOutcome {
++            vendor: vendor.to_string(),
++            reason: format!("{vendor} anti-bot wall that no renderer tier could clear"),
++        });
++    }
++    let r = crw_extract::antibot::classify(None, &result.html);
++    (r.signal.is_blocked() && r.signal != crw_extract::antibot::AntibotSignal::StructuralFailure)
++        .then(|| crw_core::types::BlockOutcome {
++            vendor: r.signal.class_name().to_string(),
++            reason: r.reason,
++        })
++}
++
++/// Is this body a wall, by the generic phrase list or a vendor's markers? A
++/// fallback body that is one must not stand in for a walled ladder result.
++fn is_wall(result: &FetchResult) -> bool {
++    detector::looks_like_generic_bot_wall(&result.html, result.truncated)
++        || vendor_wall(result).is_some()
++}
++
+ /// The verdict for a wall no browser tier could clear: every tier the ladder
+ /// ran came back with it, or the PDF gate skipped the ladder and the HTTP body
+ /// is that same generic wall. (A PDF with a hard-block status and any other
+@@ -730,6 +752,22 @@ fn url_path_is_pdf(url: &str) -> bool {
+     url::Url::parse(url).is_ok_and(|u| u.path().to_ascii_lowercase().ends_with(".pdf"))
+ }
+ 
++/// Does this URL's path name a file a browser downloads or shows in a viewer
++/// rather than renders: a PDF, an office document, an archive, an image or
++/// media? The forced-JS arm sends these to HTTP without a browser.
++fn url_path_is_file(url: &str) -> bool {
++    const EXTENSIONS: &[&str] = &[
++        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf", "epub",
++        "csv", "zip", "gz", "tgz", "tar", "7z", "rar", "png", "jpg", "jpeg", "gif", "webp", "avif",
++        "bmp", "ico", "mp3", "m4a", "wav", "ogg", "mp4", "webm", "mov", "avi",
++    ];
++    url::Url::parse(url).is_ok_and(|u| {
++        let path = u.path().to_ascii_lowercase();
++        path.rsplit_once('.')
++            .is_some_and(|(_, ext)| EXTENSIONS.contains(&ext))
++    })
++}
++
+ /// An HTTP-tier error that says the body is a document no other client can turn
+ /// into a page: not a web page at all (`UnsupportedContentType`: a .docx ZIP, an
+ /// image), or over the size cap (every cap site's message starts with
+@@ -1526,6 +1564,28 @@ impl FallbackRenderer {
+         })
+     }
+ 
++    /// Is a recovery arm (cloak, or residential egress) configured, which reads
++    /// a vendor's wall back from the ladder's thin result?
++    fn reads_walls_back(&self) -> bool {
++        #[cfg(feature = "cloak")]
++        if self.cloak_arm.is_some() {
++            return true;
++        }
++        self.auto_egress_escalation
++    }
++
++    /// The HTTP client the forced-JS arm checks content type and falls back
++    /// with: the Chrome-impersonating one when that tier is enabled, so the one
++    /// request that is not the browser still shakes hands like Chrome, else
++    /// the plain one.
++    fn fallback_http_fetcher(&self) -> CrwResult<Arc<dyn PageFetcher>> {
++        #[cfg(feature = "impersonated")]
++        if self.impersonated.is_some() {
++            return self.impersonated_fetcher_for_request();
++        }
++        self.http_fetcher_for_request()
++    }
++
+     /// Warm per-proxy fetcher cache shared by the two HTTP-shaped tiers: reuse
+     /// a client previously bound to the same `REQUEST_PROXY` entry, else build
+     /// one via `build` (fail-closed) and remember it. The build runs OUTSIDE
+@@ -2402,7 +2462,39 @@ impl FallbackRenderer {
+                 Ok(r)
+             }
+             Some(true) => {
+-                // Fetch via HTTP first to check content type — PDFs can't be JS-rendered.
++                // Browser first. The HTTP client is not a browser: its TLS
++                // handshake and headers are a bot's, and an anti-bot vendor that
++                // sees one holds it against the browser visit from the same IP
++                // right after (Akamai answered it with an IP-reputation 403 on
++                // Kohl's, Marriott and Apartments.com, then blocked Chrome on two
++                // of them). So the ladder runs first, and HTTP is the fallback
++                // when it errors, comes back with a wall, or reached a document
++                // a browser cannot render (a PDF whose URL does not say so). A
++                // URL that names a file (`url_path_is_file`) skips the browser,
++                // as before.
++                let browser_first = !self.js_renderers.is_empty() && !url_path_is_file(url);
++                let mut ladder = None;
++                if browser_first {
++                    let started_at = std::time::Instant::now();
++                    let js = self
++                        .fetch_with_js(
++                            url,
++                            headers,
++                            wait_for_ms,
++                            requested_renderer,
++                            cloak_attempted,
++                            deadline,
++                        )
++                        .await;
++                    match &js {
++                        Ok(r) if r.block.is_none() => return js,
++                        // No HTTP substitute for these; see the fallback below.
++                        _ if screenshot_requested() || is_hard_pinned => return js,
++                        _ => {}
++                    }
++                    ladder = Some((js, started_at));
++                }
++                // Fetch via HTTP to check content type — PDFs can't be JS-rendered.
+                 // An HTTP-layer failure is not terminal here either: the auto arm
+                 // escalates on it (bench: 10/147 false "unreachable" + 5/147
+                 // "http_502" recover via a real Chromium navigation), and a
+@@ -2412,7 +2504,7 @@ impl FallbackRenderer {
+                 // arm — never reached the browser on an origin that rejects
+                 // reqwest's TLS fingerprint.
+                 let mut http_result = match self
+-                    .http_fetcher_for_request()?
++                    .fallback_http_fetcher()?
+                     .fetch(url, headers, None, deadline)
+                     .await
+                 {
+@@ -2430,34 +2522,38 @@ impl FallbackRenderer {
+                             error = %LogErr(&e),
+                             "HTTP fetch failed, escalating to JS renderer",
+                         );
+-                        return self
+-                            .fetch_with_js(
+-                                url,
+-                                headers,
+-                                wait_for_ms,
+-                                requested_renderer,
+-                                cloak_attempted,
+-                                deadline,
+-                            )
+-                            .await
+-                            .map_err(|js_err| {
+-                                tracing::warn!(
+-                                    "Both HTTP and JS failed: http={e}, js={js_err}",
+-                                    e = LogErr(&e),
+-                                    js_err = LogErr(&js_err),
+-                                );
+-                                // Same attribution rule as the auto arm: a dead
+-                                // origin is the caller's target (422), not our
+-                                // renderer breaking (500).
+-                                match (&e, &js_err) {
+-                                    (CrwError::TargetUnreachable(_), js)
+-                                        if is_origin_navigation_failure(js) =>
+-                                    {
+-                                        e
+-                                    }
+-                                    _ => js_err,
++                        let js = match ladder {
++                            Some((js, _)) => js,
++                            None => {
++                                self.fetch_with_js(
++                                    url,
++                                    headers,
++                                    wait_for_ms,
++                                    requested_renderer,
++                                    cloak_attempted,
++                                    deadline,
++                                )
++                                .await
++                            }
++                        };
++                        return js.map_err(|js_err| {
++                            tracing::warn!(
++                                "Both HTTP and JS failed: http={e}, js={js_err}",
++                                e = LogErr(&e),
++                                js_err = LogErr(&js_err),
++                            );
++                            // Same attribution rule as the auto arm: a dead
++                            // origin is the caller's target (422), not our
++                            // renderer breaking (500).
++                            match (&e, &js_err) {
++                                (CrwError::TargetUnreachable(_), js)
++                                    if is_origin_navigation_failure(js) =>
++                                {
++                                    e
+                                 }
+-                            });
++                                _ => js_err,
++                            }
++                        });
+                     }
+                     Err(e) => return Err(e),
+                 };
+@@ -2508,17 +2604,23 @@ impl FallbackRenderer {
+                     // debug and because the request is billed either way.
+                     let is_auth_blocked =
+                         soft_block_warrants_js(http_result.status_code, &http_result.html);
+-                    let started_at = std::time::Instant::now();
+-                    let js_outcome = self
+-                        .fetch_with_js(
+-                            url,
+-                            headers,
+-                            wait_for_ms,
+-                            requested_renderer,
+-                            cloak_attempted,
+-                            deadline,
+-                        )
+-                        .await;
++                    let (js_outcome, started_at) = match ladder {
++                        Some(done) => done,
++                        None => {
++                            let started_at = std::time::Instant::now();
++                            let js = self
++                                .fetch_with_js(
++                                    url,
++                                    headers,
++                                    wait_for_ms,
++                                    requested_renderer,
++                                    cloak_attempted,
++                                    deadline,
++                                )
++                                .await;
++                            (js, started_at)
++                        }
++                    };
+                     // A ladder result that is nothing but a wall must not
+                     // displace a usable HTTP body. This is the preference the
+                     // old error carried implicitly; see the helper.
+@@ -2549,10 +2651,7 @@ impl FallbackRenderer {
+                         Err(e)
+                             if screenshot_requested()
+                                 || is_hard_pinned
+-                                || detector::looks_like_generic_bot_wall(
+-                                    &http_result.html,
+-                                    http_result.truncated,
+-                                ) =>
++                                || is_wall(&http_result) =>
+                         {
+                             Err(e)
+                         }
+@@ -4030,6 +4129,14 @@ impl FallbackRenderer {
+                         }
+                     });
+                 }
++                // The browser reached a document that is not a page (see
++                // `cdp.rs`). No other browser reads it either, and it is not
++                // the tier failing, so stop here; the forced-JS arm's HTTP
++                // fetch parses it.
++                Err(e @ CrwError::UnsupportedContentType(_)) => {
++                    last_error = Some(e);
++                    break;
++                }
+                 Err(e) => {
+                     // A replayed hedge leg was already logged as `hedge leg failed`.
+                     if !was_replayed {
+@@ -4779,6 +4886,12 @@ impl FallbackRenderer {
+             // tier failed outright, now get the verdict instead of a 502.
+             if detector::looks_like_generic_bot_wall(&result.html, result.truncated) {
+                 result.block = Some(unclearable_wall_verdict());
++            } else if !self.reads_walls_back() {
++                // With no recovery arm to read a named vendor's wall back, it
++                // is the verdict too. Otherwise the caller had no way to tell
++                // it from a page: the forced-JS arm returned it rather than
++                // trying HTTP, and the scrape billed it as content.
++                result.block = vendor_wall(&result);
+             }
+             Ok(result)
+         } else {
+@@ -6145,6 +6258,140 @@ mod tests {
+         );
+     }
+ 
++    /// Forced JS sends a page to the browser before any HTTP request (an HTTP
++    /// client's fingerprint gets the IP flagged), and a URL naming a file
++    /// to HTTP alone.
++    #[tokio::test]
++    async fn forced_js_asks_the_browser_before_http() {
++        let browser = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        let http = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        let mut r = make_renderer_with_mocks(vec![Arc::new(CountingFetcher {
++            name: "chrome",
++            calls: browser.clone(),
++        })]);
++        r.http = Arc::new(PdfBody {
++            calls: http.clone(),
++        });
++        let page = r
++            .fetch(
++                "https://example.com/products",
++                &HashMap::new(),
++                Some(true),
++                None,
++                None,
++                tdl(),
++            )
++            .await
++            .expect("the browser's page");
++        assert_eq!(page.rendered_with.as_deref(), Some("chrome"));
++        assert_eq!(http.load(std::sync::atomic::Ordering::SeqCst), 0);
++
++        let pdf = r
++            .fetch(
++                "https://example.com/report.pdf",
++                &HashMap::new(),
++                Some(true),
++                None,
++                None,
++                tdl(),
++            )
++            .await
++            .expect("the HTTP body");
++        assert_eq!(pdf.content_type.as_deref(), Some("application/pdf"));
++        assert_eq!(browser.load(std::sync::atomic::Ordering::SeqCst), 1);
++        assert_eq!(http.load(std::sync::atomic::Ordering::SeqCst), 1);
++    }
++
++    /// An HTTP tier that answers every URL with a PDF.
++    struct PdfBody {
++        calls: Arc<std::sync::atomic::AtomicUsize>,
++    }
++    #[async_trait::async_trait]
++    impl PageFetcher for PdfBody {
++        async fn fetch(
++            &self,
++            url: &str,
++            _h: &HashMap<String, String>,
++            _w: Option<u64>,
++            _d: crw_core::Deadline,
++        ) -> CrwResult<FetchResult> {
++            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++            let mut res = fr(200, "");
++            res.url = url.to_string();
++            res.content_type = Some("application/pdf".to_string());
++            res.raw_bytes = Some(b"%PDF-1.4".to_vec());
++            Ok(res)
++        }
++        fn name(&self) -> &str {
++            "http"
++        }
++        fn supports_js(&self) -> bool {
++            false
++        }
++        async fn is_available(&self) -> bool {
++            true
++        }
++    }
++
++    /// A vendor's wall every browser hit is the verdict, not a page: the
++    /// forced-JS arm then tries HTTP, and a real HTTP body still wins.
++    #[tokio::test]
++    async fn forced_js_vendor_wall_falls_back_or_is_the_verdict() {
++        let wall = "<html><body><h1>adidas</h1>\
++                    <p>Reference Error: 0.333b2f17.1793287426.7e59a54</p></body></html>";
++        let article = format!(
++            "<html><body><article><h1>Real page</h1><p>{}</p></article></body></html>",
++            "Genuine prose that no detector could mistake for an interstitial. ".repeat(20)
++        );
++        for (http_body, want_page) in [(wall.to_string(), false), (article, true)] {
++            let chrome = Arc::new(MockFetcher {
++                name: "chrome",
++                behavior: MockBehavior::Ok(wall.to_string()),
++            }) as Arc<dyn PageFetcher>;
++            let mut r = make_renderer_with_mocks(vec![chrome]);
++            r.http = Arc::new(MockFetcher {
++                name: "http",
++                behavior: MockBehavior::Ok(http_body),
++            });
++            let out = r
++                .fetch(
++                    "https://example.com",
++                    &HashMap::new(),
++                    Some(true),
++                    None,
++                    None,
++                    tdl(),
++                )
++                .await
++                .expect("a body either way");
++            if want_page {
++                assert!(out.html.contains("Real page"));
++                assert!(out.block.is_none(), "{:?}", out.block);
++            } else {
++                assert_eq!(out.block.map(|b| b.vendor).as_deref(), Some("akamai"));
++            }
++        }
++    }
++
++    #[test]
++    fn file_urls() {
++        for url in [
++            "https://a.org/x.pdf",
++            "https://a.org/f/Report.DOCX?dl=1",
++            "https://a.org/i.png#x",
++        ] {
++            assert!(url_path_is_file(url), "{url}");
++        }
++        for url in [
++            "https://a.org/",
++            "https://arxiv.org/pdf/2401.12345",
++            "https://a.org/v1.2/page",
++            "https://a.org/index.html",
++        ] {
++            assert!(!url_path_is_file(url), "{url}");
++        }
++    }
++
+     /// An HTTP tier whose origin refused a body over the size cap.
+     struct OversizeBody;
+     #[async_trait::async_trait]
+@@ -6173,10 +6420,11 @@ mod tests {
+ 
+     /// Same rule as the binary body, for the size cap: the prod shape is a
+     /// 52 to 78 MB PDF, which chrome aborts as a download (`net::ERR_ABORTED`)
+-    /// after the whole ladder has run. Both arms share the guard.
++    /// after the whole ladder has run. The forced-JS arm asks the browser
++    /// first (see `forced_js_asks_the_browser_before_http`), so this is auto's.
+     #[tokio::test]
+     async fn oversize_body_does_not_climb_the_ladder() {
+-        for render_js in [None, Some(true)] {
++        for render_js in [None] {
+             let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+             let js = Arc::new(CountingFetcher {
+                 name: "chrome",
+diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
+--- a/crates/crw-renderer/src/cdp.rs
++++ b/crates/crw-renderer/src/cdp.rs
+@@ -2211,6 +2211,13 @@
+         || lower.contains("attention required")
+ }
+ 
++/// Is `document.contentType` one a page is read from? Markup, text and data
++/// are; a PDF, an image or a video is not.
++fn is_page_content_type(content_type: &str) -> bool {
++    let ct = content_type.to_ascii_lowercase();
++    ct.starts_with("text/") || ct.contains("html") || ct.contains("xml") || ct.contains("json")
++}
++
+ /// Detect LightPanda/Chrome navigation error pages.
+ fn detect_navigation_error(html: &str) -> Option<String> {
+     if html.len() > 2000 {
+@@ -3473,6 +3480,14 @@
+                 .get("errorText")
+                 .and_then(|value| value.as_str())
+             {
++                // Chrome aborts a navigation that turns into a download (a file
++                // served as an attachment, or a type it has no viewer for).
++                // There is no page; the HTTP fetch after the ladder takes it.
++                if error_text == "net::ERR_ABORTED" {
++                    return Err(CrwError::UnsupportedContentType(format!(
++                        "download ({error_text})"
++                    )));
++                }
+                 return Err(CrwError::RendererError(format!(
+                     "Navigation failed: {error_text}"
+                 )));
+@@ -3552,6 +3567,23 @@
+             } else {
+                 status_code
+             };
++            // A document that is not a web page (a PDF whose URL does not end
++            // in .pdf, an image) opens in Chrome's viewer, which has nothing to
++            // read. Say so: the ladder stops and the HTTP fetch after it, which
++            // parses PDFs, takes over.
++            let content_type = conn
++                .send_recv(
++                    "Runtime.evaluate",
++                    serde_json::json!({ "expression": "document.contentType", "returnByValue": true }),
++                    Some(&session_id),
++                    Duration::from_secs(2),
++                )
++                .await
++                .ok()
++                .and_then(|v| v.pointer("/result/value").and_then(|s| s.as_str()).map(str::to_owned));
++            if let Some(ct) = content_type.filter(|ct| !is_page_content_type(ct)) {
++                return Err(CrwError::UnsupportedContentType(ct));
++            }
+             // Screenshot capture runs AFTER the page-load budget race resolves,
+             // with its own timeout. A full-page capture of a heavy page must not
+             // be cancelled by the nav budget (which closes the WS mid-capture and
+@@ -4934,7 +4966,7 @@
+ 
+     // --- is_challenge_page ------------------------------------------------------
+ 
+-    use super::is_challenge_page;
++    use super::{is_challenge_page, is_page_content_type};
+ 
+     #[test]
+     fn challenge_page_detects_cloudflare_just_a_moment() {
+@@ -4978,6 +5010,27 @@
+         assert!(is_challenge_page(
+             "<script>window.KPSDK={};KPSDK.now=Date.now;KPSDK.scriptStart=KPSDK.now();</script>"
+         ));
++    }
++
++    #[test]
++    fn page_content_types() {
++        for ct in [
++            "text/html",
++            "application/xhtml+xml",
++            "text/plain",
++            "application/json",
++            "image/svg+xml",
++        ] {
++            assert!(is_page_content_type(ct), "{ct}");
++        }
++        for ct in [
++            "application/pdf",
++            "image/png",
++            "video/mp4",
++            "application/octet-stream",
++        ] {
++            assert!(!is_page_content_type(ct), "{ct}");
++        }
+     }
+ 
+     #[test]

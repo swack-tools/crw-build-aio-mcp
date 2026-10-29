@@ -8,7 +8,7 @@ Run [CRW](https://github.com/fastcrw/crw), the Firecrawl-compatible scraper, loc
 | `impersonated-http` | no browser; mimics Chrome's TLS/HTTP2 fingerprint | inside crw |
 | `camoufox` | Camoufox, a fingerprint-spoofing Firefox fork, behind the camofox-browser REST server | `camofox` container |
 
-A scrape with no `renderer` set (which is how Claude and Codex call it) renders the page in Chrome, then in Camoufox if Chrome is blocked. With `renderJs: false` it uses plain HTTP (with a Chrome User-Agent) instead, then the `impersonated-http` tier if a site blocks that.
+A scrape with no `renderer` set (which is how Claude and Codex call it) renders the page in Chrome, then in Camoufox if Chrome is blocked, then tries the `impersonated-http` tier. If that is blocked too, the scrape fails as blocked rather than returning the block page. Files (PDFs and the like) go to `impersonated-http` directly. With `renderJs: false` it uses plain HTTP (with a Chrome User-Agent) instead, then the `impersonated-http` tier if a site blocks that.
 
 No prebuilt app images are pulled. The scripts clone the upstream repos and compile crw, Camoufox (Firefox), camofox-browser and SearXNG. Chrome is Google's stable release, from Google's apt repository.
 
@@ -101,6 +101,14 @@ Requirements: Docker with buildx (a containerd image store is needed for `build-
     - It adds `CRW_RENDERER__CHROME_OUTBOUND_CHECK` (see above).
   - **`patches/crw/camoufox-wait-for.patch`** makes the Camoufox renderer honor `waitFor`, and without one, wait for the page to settle (camofox-browser's own readiness check, up to 6s) instead of reading it the moment navigation returns.
   - **`patches/crw/camoufox-after-chrome.patch`** lets Camoufox follow Chrome in auto mode (`include_in_auto`) when the mode is `chrome`, not only `auto`.
+  - **`patches/crw/challenge-markers.patch`** fixes how crw tells a block page from a page that loaded, which decides whether it tries the next tier:
+    - PerimeterX's sensor tag and Cloudflare's telemetry script, which sit on pages that loaded, no longer count as blocks. On Walmart, Wayfair and Trulia that had sent every scrape on to Camoufox for nothing.
+    - It recognizes Akamai's block page as adidas serves it ("Reference Error: …"), Akamai's interstitial (`sec-if-cpt`, a proof of work that reloads into the page) and Reddit's "Prove your humanity" captcha. Both browsers wait for Akamai's interstitial to clear, as they do for Cloudflare's and Kasada's. Before, these came back as successful scrapes of the block page.
+    - It reports the real page's status after AWS WAF's challenge (a 202) clears.
+  - **`patches/crw/render-browser-first.patch`:** a page goes to the browser first. Upstream fetched every page once over plain HTTP before rendering it, to check its content type. That request is a bot's TLS handshake from your IP, and Akamai answered it with an IP-reputation block on Kohl's, Marriott and Apartments.com, then blocked Chrome on the latter two.
+    - HTTP is now the fallback, through the `impersonated-http` client: when both browsers are blocked or fail, and for files. A URL naming a file (`.pdf`, `.docx`, `.zip`, images, media) goes straight to it, and Chrome hands over a PDF or download it opens from any other URL.
+    - When the fallback gets a block page too, the scrape fails as blocked rather than returning that page.
+  - **`patches/crw/revisit-walls.patch`:** when Chrome's first visit gets a block page (not a challenge that solves itself, which it waits out), it reloads once after a short pause, as a person would. Some anti-bot systems turn a first visit away while setting a cookie that lets the next one through: from a fresh profile, Reddit shows a captcha the first time and its automatic check passes on the reload.
 - **Ports:** crw is published on `127.0.0.1:$CRW_HOST_PORT` (default 3000). If the port is busy, `up-stealth` offers the next free one and saves the choice to `.env`.
 - **MCP:** `bin/crw-mcp` runs in proxy mode, pointed at the stack with `CRW_API_URL`.
   - Codex gets `tool_timeout_sec = 300`, because Camoufox scrapes can outlast its 60s default.
@@ -108,18 +116,23 @@ Requirements: Docker with buildx (a containerd image store is needed for `build-
 
 ## What it gets past
 
-With default settings (no `renderer`, no `waitFor`) and a fresh Chrome profile, crw loaded the real page on sites behind each of these, checked on 2026-10-29. Chrome got each one itself, except that Imperva's site sometimes takes the Camoufox fallback:
+With default settings (no `renderer`, no `waitFor`) and a fresh Chrome profile, crw loaded the real page on each of these sites, checked on 2026-10-29. Sites are grouped by the protection each is known to use; Chrome got each one itself except those marked *(Camoufox)*, where Chrome was turned away and the fallback got through:
 
 | protection | sites |
 |---|---|
-| Cloudflare (including interactive Turnstile) | g2.com, indeed.com, glassdoor.com, crunchbase.com, nopecha.com's demo, scrapingcourse.com's two challenges |
-| DataDome | leboncoin.fr, tripadvisor.com, hermes.com, reuters.com |
-| HUMAN (PerimeterX) | zillow.com, walmart.com, stockx.com |
-| Akamai | nike.com, homedepot.com, bestbuy.com |
-| Kasada | hyatt.com |
-| Imperva, AWS WAF, F5 Shape | whoscored.com, ballotpedia.org, southwest.com |
+| Cloudflare (including interactive Turnstile) | g2.com, indeed.com, glassdoor.com, crunchbase.com, gitlab.com sign-in, upwork.com, chatgpt.com, quizlet.com, coingecko.com, doordash.com, opensea.io, ziprecruiter.com, medium.com, genius.com, coinbase.com, patreon.com, producthunt.com, similarweb.com, crunchyroll.com, nowsecure.nl, nopecha.com's demo, scrapingcourse.com's challenges, investing.com *(Camoufox)* |
+| DataDome | leboncoin.fr, tripadvisor.com, hermes.com, reuters.com, etsy.com, yelp.com, idealista.com, allegro.pl, soundcloud.com, fnac.com, seloger.com, vinted.com, footlocker.com, wsj.com, deezer.com |
+| HUMAN (PerimeterX) | zillow.com, walmart.com, stockx.com, wayfair.com, bloomberg.com, seekingalpha.com, chegg.com, bhphotovideo.com, zoominfo.com, realtor.com, trulia.com, ssense.com, priceline.com, crateandbarrel.com, fiverr.com *(Camoufox)* |
+| Akamai | nike.com, bestbuy.com, lowes.com, ups.com, fedex.com, usps.com, macys.com, kohls.com, costco.com, united.com, delta.com, aa.com, marriott.com, hilton.com, walgreens.com, sephora.com, asos.com, zara.com, ikea.com, homedepot.com, adidas.com, apartments.com, expedia.com, hm.com *(the last five Camoufox)* |
+| Kasada | hyatt.com, twitch.tv, realestate.com.au, wizzair.com, scheels.com, ticketek.com.au |
+| Imperva | whoscored.com, pokemoncenter.com, copart.com, iaai.com, ryanair.com |
+| AWS WAF | ballotpedia.org, imdb.com, goodreads.com, booking.com, stubhub.com, audible.com |
+| F5 Shape | southwest.com, target.com, nordstrom.com, starbucks.com |
+| their own | amazon.com, google.com search, bing.com, duckduckgo.com, reddit.com (on the reload), instagram.com, x.com, youtube.com, tiktok.com, airbnb.com, kayak.com, ticketmaster.com, shein.com, temu.com, aliexpress.com, craigslist.org, ebay.com *(Camoufox)* |
 
-On fingerprint test pages it rates as a person: deviceandbrowserinfo.com "not a bot", rebrowser's detector all green, fingerprint.com bot "not detected" (no tampering, VM or incognito), BrowserScan "Normal", pixelscan "no automated behavior", whoer.net 100%, CreepJS 0% headless and 0% stealth. Anti-bot vendors change their checks often, so this is a snapshot; `just test-stealth` re-checks the core of it.
+The one it doesn't get past is lacentrale.fr, whose DataDome shows both browsers a captcha; that scrape fails as blocked. LinkedIn company pages load its sign-up wall, which is a login requirement rather than bot detection.
+
+On fingerprint test pages it rates as a person: deviceandbrowserinfo.com "not a bot", rebrowser's detector all green, fingerprint.com bot "not detected" (no tampering, VM or incognito) and its scraping demo serves the protected data, Google's reCAPTCHA v3 demo scores it 0.9 (the highest it gives), BrowserScan and pixelscan's bot checks "Normal"/"Clear" on every row, whoer.net 100%, CreepJS 0% headless and 0% stealth. Anti-bot vendors change their checks often, so this is a snapshot; `just test-stealth` re-checks the core of it.
 
 ## CI and releases
 

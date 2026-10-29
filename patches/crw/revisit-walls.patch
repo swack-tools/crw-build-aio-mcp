@@ -1,0 +1,206 @@
+diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
+--- a/crates/crw-renderer/src/cdp.rs
++++ b/crates/crw-renderer/src/cdp.rs
+@@ -97,6 +97,11 @@
+ const SETTLE_MIN_MS: u64 = 1000;
+ const SETTLE_QUIET_MS: i64 = 1000;
+ const SETTLE_MAX_MS: u64 = 4000;
++/// Before reloading a page that turned the first visit away: about as long as
++/// a person takes to read it and press refresh. The reload then has at most
++/// `RELOAD_LOAD_MAX` to load before the settle above.
++const RELOAD_PAUSE: Duration = Duration::from_millis(1500);
++const RELOAD_LOAD_MAX: Duration = Duration::from_secs(12);
+ /// How long a JavaScript dialog stays open before crw accepts it.
+ const DIALOG_ANSWER_DELAY: Duration = Duration::from_millis(700);
+ /// Max iterations for the auto-scroll lazy-load pass. 12 viewports usually
+@@ -2211,6 +2216,19 @@
+         || lower.contains("attention required")
+ }
+ 
++/// Did the page turn this visit away with a wall a reload may clear? A
++/// generic or vendor block page, but not a challenge still solving itself.
++fn is_revisitable_wall(html: &str) -> bool {
++    if is_challenge_page(html) {
++        return false;
++    }
++    let named = crw_extract::antibot::classify(None, html);
++    crate::detector::looks_like_generic_bot_wall(html, false)
++        || crate::detector::looks_like_vendor_block(html).is_some()
++        || (named.signal.is_blocked()
++            && named.signal != crw_extract::antibot::AntibotSignal::StructuralFailure)
++}
++
+ /// Is `document.contentType` one a page is read from? Markup, text and data
+ /// are; a PDF, an image or a video is not.
+ fn is_page_content_type(content_type: &str) -> bool {
+@@ -3833,7 +3851,6 @@
+         // prod RUST_LOG=info; enable with RUST_LOG=render_phases=debug for bench).
+         let _pt0 = Instant::now();
+         let mut t_stability_ms: u64 = 0;
+-        let mut t_challenge_ms: u64 = 0;
+         // 2.5. Best-effort consent / CMP dismissal. Cookie banners can both
+         // hide content behind an overlay and inflate `body.innerText` past
+         // the SPA-readiness threshold prematurely (the banner copy alone
+@@ -3958,23 +3975,23 @@
+         // Bounded by `self.challenge_max_retries` (config); 0 disables it so
+         // anti-bot recovery falls to the stealth/auto-egress tier instead of
+         // burning the deadline here (the Firecrawl/Spider approach).
+-        if self.challenge_max_retries > 0 && is_challenge_page(&html) {
+-            let _chal_t = Instant::now();
+-            tracing::info!(
+-                url = %LogUrl(&url),
+-                "Challenge page detected, waiting for auto-resolve",
+-            );
+-            for attempt in 1..=self.challenge_max_retries {
+-                tokio::time::sleep(Duration::from_millis(CHALLENGE_POLL_INTERVAL_MS)).await;
+-                html = Self::eval_html(conn, session_id, self.page_timeout).await?;
+-                if !is_challenge_page(&html) {
+-                    tracing::info!(url = %LogUrl(&url), attempt, "Challenge cleared");
+-                    break;
+-                }
+-                tracing::debug!(url = %LogUrl(&url), attempt, "Challenge still active, retrying");
+-            }
+-            t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
+-        }
++        let _chal_t = Instant::now();
++        html = self.wait_out_challenge(conn, session_id, url, html).await?;
++
++        // 6. Some anti-bot systems turn a first visit away and set a cookie as
++        // they do, so a person's refresh gets through: Reddit's captcha wall
++        // gives way to its automatic check on the next load, and Akamai's
++        // sensor cookie is only good once a page has run it. Reload once, the
++        // way a person would, before this tier reports the wall. Not a
++        // challenge still solving (the loop above waited that out), and not
++        // when the caller set the timing.
++        if wait_for_ms.is_none() && self.name == "chrome" && is_revisitable_wall(&html) {
++            tracing::info!(url = %LogUrl(&url), "Anti-bot wall on this visit; reloading once");
++            tokio::time::sleep(RELOAD_PAUSE).await;
++            html = self.reload_and_read(conn, session_id, net).await?;
++            html = self.wait_out_challenge(conn, session_id, url, html).await?;
++        }
++        let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
+ 
+         // latency-qn render-phase breakdown (debug target; off in prod).
+         let total_ms = _pt0.elapsed().as_millis() as u64;
+@@ -3991,6 +4008,88 @@
+         );
+ 
+         Ok(html)
++    }
++
++    /// Poll a challenge page until it clears or the retries run out; any other
++    /// page comes straight back.
++    async fn wait_out_challenge(
++        &self,
++        conn: &CdpConnection,
++        session_id: &str,
++        url: &str,
++        mut html: String,
++    ) -> CrwResult<String> {
++        if self.challenge_max_retries == 0 || !is_challenge_page(&html) {
++            return Ok(html);
++        }
++        tracing::info!(
++            url = %LogUrl(&url),
++            "Challenge page detected, waiting for auto-resolve",
++        );
++        for attempt in 1..=self.challenge_max_retries {
++            tokio::time::sleep(Duration::from_millis(CHALLENGE_POLL_INTERVAL_MS)).await;
++            html = Self::eval_html(conn, session_id, self.page_timeout).await?;
++            if !is_challenge_page(&html) {
++                tracing::info!(url = %LogUrl(&url), attempt, "Challenge cleared");
++                break;
++            }
++            tracing::debug!(url = %LogUrl(&url), attempt, "Challenge still active, retrying");
++        }
++        Ok(html)
++    }
++
++    /// Reload the page, wait for the new document to load and the network to
++    /// settle, and read it.
++    async fn reload_and_read(
++        &self,
++        conn: &CdpConnection,
++        session_id: &str,
++        net: &NetworkActivityTracker,
++    ) -> CrwResult<String> {
++        const DOCUMENT: &str = "JSON.stringify([performance.timeOrigin, document.readyState])";
++        let document = || async {
++            conn.send_recv(
++                "Runtime.evaluate",
++                serde_json::json!({ "expression": DOCUMENT, "returnByValue": true }),
++                Some(session_id),
++                Duration::from_secs(2),
++            )
++            .await
++            .ok()
++            .and_then(|v| {
++                v.pointer("/result/value")
++                    .and_then(|s| s.as_str())
++                    .map(str::to_owned)
++            })
++            .and_then(|s| serde_json::from_str::<(f64, String)>(&s).ok())
++        };
++        let before = document().await.map(|(origin, _)| origin);
++        conn.send_recv(
++            "Page.reload",
++            serde_json::json!({}),
++            Some(session_id),
++            self.page_timeout,
++        )
++        .await?;
++        // A new document has a new time origin; wait for it to finish loading.
++        let loaded_by = Instant::now() + RELOAD_LOAD_MAX;
++        while Instant::now() < loaded_by {
++            tokio::time::sleep(Duration::from_millis(SPA_SELECTOR_TICK_MS)).await;
++            if let Some((origin, state)) = document().await
++                && Some(origin) != before
++                && state == "complete"
++            {
++                break;
++            }
++        }
++        let settle_end = Instant::now() + Duration::from_millis(SETTLE_MAX_MS);
++        tokio::time::sleep(Duration::from_millis(SETTLE_MIN_MS)).await;
++        while Instant::now() < settle_end
++            && !net.is_settled(SETTLE_QUIET_MS, ALMOST_IDLE_MAX_INFLIGHT)
++        {
++            tokio::time::sleep(Duration::from_millis(SPA_SELECTOR_TICK_MS)).await;
++        }
++        Self::eval_html(conn, session_id, self.page_timeout).await
+     }
+ 
+     /// Measure the content box (Page.getLayoutMetrics) and decide whether a
+@@ -4966,7 +5065,7 @@
+ 
+     // --- is_challenge_page ------------------------------------------------------
+ 
+-    use super::{is_challenge_page, is_page_content_type};
++    use super::{is_challenge_page, is_page_content_type, is_revisitable_wall};
+ 
+     #[test]
+     fn challenge_page_detects_cloudflare_just_a_moment() {
+@@ -5009,6 +5108,23 @@
+         ));
+         assert!(is_challenge_page(
+             "<script>window.KPSDK={};KPSDK.now=Date.now;KPSDK.scriptStart=KPSDK.now();</script>"
++        ));
++    }
++
++    #[test]
++    fn revisitable_walls() {
++        assert!(is_revisitable_wall(
++            "<html><head><title>Reddit - Prove your humanity</title></head><body><h1>Prove your humanity</h1></body></html>"
++        ));
++        assert!(is_revisitable_wall(
++            "<html><head><title>Error Page</title></head><body><main><div>Oops!! Something went wrong. Please refresh page</div></main></body></html>"
++        ));
++        // A challenge solves itself; the loop waits for it instead.
++        assert!(!is_revisitable_wall(
++            "<html><head><title>Just a moment...</title></head></html>"
++        ));
++        assert!(!is_revisitable_wall(
++            "<html><head><title>Example</title></head><body><article><p>A page that loaded.</p></article></body></html>"
+         ));
+     }
+ 
