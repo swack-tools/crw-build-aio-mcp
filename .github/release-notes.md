@@ -1,4 +1,4 @@
-CRW, the Firecrawl-compatible scraper, with all three stealth tiers (`impersonated-http`, browserless `chrome`, and `camoufox`), plus its MCP server for Claude and Codex. Every image is built from upstream source.
+CRW, the Firecrawl-compatible scraper, with all three stealth tiers (`impersonated-http`, Google Chrome as `chrome`, and `camoufox`), plus its MCP server for Claude and Codex. Every image is built from upstream source, with Chrome from Google's stable channel.
 
 ## Install on an Apple Silicon Mac
 
@@ -37,4 +37,4 @@ cosign verify @REGISTRY@crw-config-crw:@VERSION@ \
 
 ## Licenses
 
-browserless is SSPL-1.0; crw and SearXNG are AGPL-3.0; Camoufox is MPL-2.0. Running the stack locally is fine. Offering it to others as a service carries those licenses' terms.
+crw and SearXNG are AGPL-3.0; Camoufox is MPL-2.0; Google Chrome is under Google's Chrome terms of service. Running the stack locally is fine. Offering it to others as a service carries those licenses' terms.

@@ -9,8 +9,7 @@ load_env
 # actually runs (pulling the image first if this is a fresh install).
 if [[ -z "${CRW_USER_AGENT:-}" ]]; then
   image="$(compose config --images | grep -m1 chrome-stealth || true)"
-  major="$(docker run --rm --entrypoint sh "$image" -c \
-    'find /usr/local/bin/playwright-browsers -path "*chromium-*" -name chrome -type f -exec {} --version \; -quit' \
+  major="$(docker run --rm --entrypoint google-chrome-stable "$image" --version \
     2>/dev/null | grep -oE '[0-9]+\.' | head -1 | tr -d .)" || true
   if [[ -n "$major" ]]; then
     export CRW_USER_AGENT="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$major.0.0.0 Safari/537.36"

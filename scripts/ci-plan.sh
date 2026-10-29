@@ -20,7 +20,7 @@ for entry in "${SOURCES[@]}"; do
 done
 
 python3 -I - "$ROOT" "${REGISTRY:-}" "$PROJECT" "${shas[@]}" <<'PY'
-import glob, hashlib, json, os, subprocess, sys
+import glob, hashlib, json, os, re, subprocess, sys, urllib.request
 root, registry, project, pairs = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
 sha = dict(p.split("=", 1) for p in pairs)
 
@@ -33,18 +33,28 @@ def recipe(*files):
 IMAGES = {
     "crw": ["crw"],
     "camofox": ["camofox-browser", "camoufox"],
-    "chrome-stealth": ["browserless"],
+    "chrome-stealth": [],
     "searxng": ["searxng", "searxng-base"],
 }
 patches = sorted(os.path.relpath(p, root) for p in glob.glob(f"{root}/patches/*/*.patch"))
 ours = sorted(os.path.relpath(p, root) for p in glob.glob(f"{root}/docker/**/*", recursive=True) if os.path.isfile(p))
 common = recipe("docker-bake.hcl", "scripts/prep-sources.sh", "scripts/build-images.sh", *patches, *ours)
 camoufox = recipe("scripts/build-camoufox.sh")
+
+# chrome-stealth installs the current Chrome stable from Google's repository,
+# so a new Chrome release is what changes it.
+def chrome_stable(arch):
+    url = f"https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-{arch}/Packages"
+    index = urllib.request.urlopen(url, timeout=30).read().decode()
+    return re.search(r"^Package: google-chrome-stable\n(?:.+\n)*?Version: (.+)$", index, re.M).group(1)
+chrome = [f"chrome-{arch}={chrome_stable(arch)}" for arch in ("amd64", "arm64")]
 keys = {}
 for image, sources in IMAGES.items():
     parts = [image, common] + [f"{s}={sha[s]}" for s in sources]
     if image == "camofox":
         parts.append(camoufox)
+    if image == "chrome-stealth":
+        parts += chrome
     keys[image] = digest(*parts)[:16]
 
 refs = " ".join(f"{name.upper().replace('-', '_')}_REF={value}" for name, value in sha.items())
