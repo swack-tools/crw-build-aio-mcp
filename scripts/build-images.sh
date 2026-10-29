@@ -50,7 +50,7 @@ done
 # shellcheck disable=SC1091
 eval "$(. "$(src_dir camoufox)/browser/upstream.sh" && echo "CAMOUFOX_VERSION=$version CAMOUFOX_RELEASE=$release")"
 SEARXNG_VERSION="$(sed -n 's/^DOCKER_TAG = "\(.*\)"/\1/p' "$(src_dir searxng)/searx/version_frozen.py")"
-export PROJECT TAG REGISTRY="${REGISTRY:-}" PLATFORMS BUILD_DIR="$BUILD" DIST_DIR="$DIST" \
+export PROJECT TAG REGISTRY="${REGISTRY:-}" BUILD_CACHE="${BUILD_CACHE:-}" PLATFORMS BUILD_DIR="$BUILD" DIST_DIR="$DIST" \
   CAMOUFOX_VERSION CAMOUFOX_RELEASE SEARXNG_VERSION
 
 log "bake ${targets[*]:-default} for $PLATFORMS (${output[*]})"
