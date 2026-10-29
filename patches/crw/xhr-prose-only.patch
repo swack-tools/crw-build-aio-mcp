@@ -1,0 +1,105 @@
+diff --git a/crates/crw-extract/src/lib.rs b/crates/crw-extract/src/lib.rs
+index c4536cfb..2c34471d 100644
+--- a/crates/crw-extract/src/lib.rs
++++ b/crates/crw-extract/src/lib.rs
+@@ -1107,7 +1107,7 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
+             Err(_) => continue,
+         };
+         walk_json_strings(&value, &mut |s| {
+-            if s.len() >= MIN_FIELD_LEN && seen.insert(s.to_string()) {
++            if s.len() >= MIN_FIELD_LEN && looks_like_prose(s) && seen.insert(s.to_string()) {
+                 paragraphs.push(s.to_string());
+             }
+         });
+@@ -1123,6 +1123,23 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
+     Some(joined)
+ }
+ 
++/// Whether a captured JSON string reads as text for a person. Pages also fetch
++/// JSON whose long strings are anti-bot sensor payloads (PerimeterX's base64
++/// `ob` field), bundled JavaScript or CSS; taken for prose, they became the
++/// whole markdown of chegg.com and homedepot.com. Prose has spaces between
++/// short words and little code punctuation.
++fn looks_like_prose(s: &str) -> bool {
++    let words: Vec<&str> = s.split_whitespace().collect();
++    if words.len() < 8 || words.iter().any(|w| w.chars().count() > 60) {
++        return false;
++    }
++    let code = s
++        .chars()
++        .filter(|c| matches!(c, '{' | '}' | ';' | '=' | '(' | ')' | '<' | '>'))
++        .count();
++    code * 50 <= s.chars().count()
++}
++
+ fn walk_json_strings(value: &serde_json::Value, on_string: &mut dyn FnMut(&str)) {
+     match value {
+         serde_json::Value::String(s) => {
+@@ -1224,11 +1241,15 @@ mod private_tests {
+ 
+     #[test]
+     fn xhr_extract_collects_long_string_fields() {
++        let a = "The council voted on Tuesday to extend the library's opening hours. ".repeat(4);
++        let b =
++            "Residents said longer evening hours would help students and shift workers. ".repeat(2);
++        let c = "A pilot program will run through the spring before a final decision is made.";
+         let body = serde_json::json!({
+             "title": "short",
+-            "body": "a".repeat(300),
+-            "meta": { "summary": "b".repeat(200) },
+-            "tags": ["c".repeat(150), "short"],
++            "body": a,
++            "meta": { "summary": b },
++            "tags": [c.repeat(2), "short"],
+             "url": "https://example.com/should/skip",
+         })
+         .to_string();
+@@ -1241,13 +1262,45 @@ mod private_tests {
+             body_size_bytes: 800,
+         }];
+         let got = extract_xhr_text(&resp).expect("expected long-text fields");
+-        assert!(got.contains(&"a".repeat(300)));
+-        assert!(got.contains(&"b".repeat(200)));
+-        assert!(got.contains(&"c".repeat(150)));
++        assert!(got.contains(a.trim()));
++        assert!(got.contains(b.trim()));
++        assert!(got.contains(c));
+         assert!(!got.contains("short"));
+         assert!(!got.contains("example.com/should/skip"));
+     }
+ 
++    #[test]
++    fn xhr_extract_skips_payloads_code_and_css() {
++        // A PerimeterX collector reply, a script bundle and a stylesheet, as
++        // captured from chegg.com and homedepot.com, then one real paragraph.
++        let px = "Dw8PDykpHFIFVgFXVlRWTQRTBQJNUVEGUU0BBQICTQIDBFFRWVFVWFAGVh4eHh4pDw8PKQ8cAxUeHh4eDw8pKSkpHFFYWVFZV1BUV1FVVVJWVFdZWVFRHh4eHg8pKSkp";
++        let js = r#"function e(...e){"undefined"!=typeof window&&window.amigoConfig?.forceConsoleLogging&&console.log("[GG Debug]:",...e)}function t(e,t,n){if(!t)return e;const o=t.split(".");let i=e;return i}"#;
++        let css = ".ot-go-modal-error-msg:empty{margin:0;line-height:0}#onetrust-banner-sdk div.ot-go-modal-overlay:not(.ot-hide){background:rgba(0,0,0,.5);z-index:2147483648;width:100%;height:100%}";
++        let prose = "Study smarter with homework help from experts in more than fifty subjects. Paste a question, upload a photo or browse step by step solutions. ".repeat(3);
++        let captured = |body: serde_json::Value| {
++            vec![CapturedNetworkResponse {
++                url: "https://collector.px-cloud.net/api/v2/collector".into(),
++                request_id: "1".into(),
++                status: 200,
++                mime_type: Some("application/json".into()),
++                body: Some(body.to_string()),
++                body_size_bytes: 1200,
++            }]
++        };
++        let noise = captured(serde_json::json!({ "ob": px.repeat(4), "script": js, "style": css }));
++        assert!(
++            extract_xhr_text(&noise).is_none(),
++            "payloads, code and CSS are not text"
++        );
++
++        let mixed =
++            captured(serde_json::json!({ "ob": px.repeat(4), "script": js, "copy": prose }));
++        let got = extract_xhr_text(&mixed).expect("the prose field survives");
++        assert!(got.contains("Study smarter"));
++        assert!(!got.contains("Dw8PDykp"));
++        assert!(!got.contains("amigoConfig"));
++    }
++
+     #[test]
+     fn xhr_extract_skips_invalid_json() {
+         let resp = vec![CapturedNetworkResponse {
