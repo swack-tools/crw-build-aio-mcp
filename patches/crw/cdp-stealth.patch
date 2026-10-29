@@ -1,8 +1,8 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
-index c0ebe4f..7e18164 100644
+index c0ebe4f..4659c25 100644
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
-@@ -89,6 +89,14 @@ const SPA_CONTENT_FLOOR_CHARS: i64 = 200;
+@@ -89,6 +89,16 @@ const SPA_CONTENT_FLOOR_CHARS: i64 = 200;
  /// chatty pages (analytics/polling keep ≥1) so the old ≤0 idle-exit never
  /// triggered → 8s ceiling burns. ≤2 is the correct "settled" signal.
  const ALMOST_IDLE_MAX_INFLIGHT: i64 = 2;
@@ -14,10 +14,31 @@ index c0ebe4f..7e18164 100644
 +const SETTLE_MIN_MS: u64 = 1000;
 +const SETTLE_QUIET_MS: i64 = 1000;
 +const SETTLE_MAX_MS: u64 = 4000;
++/// How long a JavaScript dialog stays open before crw accepts it.
++const DIALOG_ANSWER_DELAY: Duration = Duration::from_millis(700);
  /// Max iterations for the auto-scroll lazy-load pass. 12 viewports usually
  /// covers infinite-scroll feeds without making it a crawl.
  const AUTO_SCROLL_MAX_STEPS: u32 = 12;
-@@ -143,54 +151,87 @@ fn screenshot_max_height_px() -> f64 {
+@@ -129,6 +139,18 @@ const NET_CAPTURE_GETBODY_TIMEOUT: Duration = Duration::from_millis(800);
+ /// NET_CAPTURE_MAX_TOTAL_BYTES. Override: CRW_RENDERER__SCREENSHOT_MAX_HEIGHT_PX.
+ const SCREENSHOT_MAX_HEIGHT_PX: f64 = 15_000.0;
+ 
++/// Whether Chrome's requests are paused and checked against private network
++/// ranges (`CRW_RENDERER__CHROME_OUTBOUND_CHECK`, default on). Off, a page's
++/// requests go straight out, as in a person's browser; Chrome's own Local
++/// Network Access still asks before a public page reaches a private address.
++/// The check breaks some anti-bot scripts: Kasada's (hyatt.com) clears one
++/// cold visit in four with it and every one without.
++fn chrome_outbound_check() -> bool {
++    std::env::var("CRW_RENDERER__CHROME_OUTBOUND_CHECK")
++        .map(|v| !v.trim().eq_ignore_ascii_case("false"))
++        .unwrap_or(true)
++}
++
+ fn screenshot_max_height_px() -> f64 {
+     std::env::var("CRW_RENDERER__SCREENSHOT_MAX_HEIGHT_PX")
+         .ok()
+@@ -143,54 +165,87 @@ fn screenshot_max_height_px() -> f64 {
  /// Every section is its own `try`: one property a renderer refuses to redefine
  /// (Lightpanda throws `Cannot redefine property: webdriver` in iframes) must not
  /// abort the sections after it.
@@ -131,7 +152,7 @@ index c0ebe4f..7e18164 100644
          Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
              get: function() {
                  const w = origHTMLElement.call(this);
-@@ -203,37 +244,23 @@ try {
+@@ -203,37 +258,23 @@ try {
  
  // 7. Fix broken toString for overridden functions (anti-detection fingerprinting)
  try {
@@ -184,7 +205,36 @@ index c0ebe4f..7e18164 100644
  "#;
  
  /// One-shot consent banner / CMP dismissal. Runs once after page load,
-@@ -2127,11 +2154,18 @@ fn is_challenge_page(html: &str) -> bool {
+@@ -1474,6 +1515,28 @@ async fn run_intercept_pump(
+             }
+             continue;
+         }
++        // An alert, confirm or prompt stops the page, and every evaluate after
++        // it, until someone answers. Answer it the way a person would, after
++        // a moment; pages time how long a dialog stays open.
++        if ev.method == "Page.javascriptDialogOpening"
++            && ev.session_id.as_deref() == Some(session_id)
++        {
++            in_flight.push(
++                async move {
++                    tokio::time::sleep(DIALOG_ANSWER_DELAY).await;
++                    let _ = conn
++                        .send_recv(
++                            "Page.handleJavaScriptDialog",
++                            serde_json::json!({ "accept": true }),
++                            Some(session_id),
++                            cmd_timeout,
++                        )
++                        .await;
++                }
++                .boxed(),
++            );
++            continue;
++        }
+         if ev.method != "Fetch.requestPaused" {
+             continue;
+         }
+@@ -2127,11 +2190,21 @@ fn is_challenge_page(html: &str) -> bool {
          return false;
      }
      let lower = html.to_lowercase();
@@ -194,7 +244,8 @@ index c0ebe4f..7e18164 100644
 +    // including the one a cleared challenge reloads into, so either one kept
 +    // the retry loop below polling a page that had already cleared.
 +    // `challenge-platform/h/` is the challenge's own orchestrator (see
-+    // `detector::looks_like_cloudflare_challenge`).
++    // `detector::looks_like_cloudflare_challenge`). Kasada's challenge page
++    // (an HTTP 429) runs its script and reloads into the site the same way.
      lower.contains("just a moment")
          || lower.contains("cf-browser-verification")
          || lower.contains("cf-challenge-running")
@@ -202,10 +253,12 @@ index c0ebe4f..7e18164 100644
 -        || (lower.contains("challenge") && lower.contains("cloudflare"))
 +        || lower.contains("challenge-platform/h/")
 +        || lower.contains("_cf_chl_opt")
++        || lower.contains("kpsdk.start=kpsdk.now()")
++        || lower.contains("kpsdk.scriptstart")
          || lower.contains("attention required")
  }
  
-@@ -3025,7 +3059,10 @@ impl CdpRenderer {
+@@ -3025,7 +3098,10 @@ impl CdpRenderer {
              .ok_or_else(|| CrwError::RendererError("CDP attach did not return sessionId".into()))?
              .to_string();
  
@@ -217,7 +270,7 @@ index c0ebe4f..7e18164 100644
              conn.send_recv(
                  method,
                  serde_json::json!({}),
-@@ -3103,7 +3140,17 @@ impl CdpRenderer {
+@@ -3103,7 +3179,26 @@ impl CdpRenderer {
          // browser's own", so the language lands without touching the UA, and
          // the header stays in step with the script and the locale override.
          let accept_language = lang_locale.map(|l| l.cdp_accept_language());
@@ -227,16 +280,73 @@ index c0ebe4f..7e18164 100644
 +        // which detectors check for. So leave a browser that already sends
 +        // this UA alone.
 +        let native_ua = conn
-+            .send_recv("Browser.getVersion", serde_json::json!({}), None, self.page_timeout)
++            .send_recv(
++                "Browser.getVersion",
++                serde_json::json!({}),
++                None,
++                self.page_timeout,
++            )
 +            .await
 +            .ok()
-+            .and_then(|v| v.get("userAgent").and_then(|u| u.as_str()).map(str::to_owned));
++            .and_then(|v| {
++                v.get("userAgent")
++                    .and_then(|u| u.as_str())
++                    .map(str::to_owned)
++            });
 +        let ua_is_native = native_ua.as_deref() == Some(effective_ua);
 +        if (!effective_ua.is_empty() && !ua_is_native) || accept_language.is_some() {
              conn.send_recv(
                  "Network.setUserAgentOverride",
                  ua_override_params(effective_ua, accept_language.as_deref()),
-@@ -3421,6 +3468,29 @@ impl CdpRenderer {
+@@ -3296,7 +3391,12 @@ impl CdpRenderer {
+         // A failure here propagates: a tier whose destinations we cannot check
+         // must not be used, and the ladder falls through to the next one.
+         let intercept_active = self.intercept_active_for(url);
+-        {
++        // With the check off and nothing else to intercept for (no blocklist,
++        // no proxy credentials), requests are not paused at all. Only on the
++        // `chrome` tier: lightpanda relies on the check.
++        let pause_requests =
++            auth_active || intercept_active || self.name != "chrome" || chrome_outbound_check();
++        if pause_requests {
+             let mut params = serde_json::Map::new();
+             params.insert(
+                 "patterns".into(),
+@@ -3323,18 +3423,21 @@ impl CdpRenderer {
+         // and a child it cannot intercept is closed rather than resumed. Best-effort — a browser without
+         // the command keeps the previous behaviour rather than failing the
+         // render.
+-        let _ = conn
+-            .send_recv(
+-                "Target.setAutoAttach",
+-                serde_json::json!({
+-                    "autoAttach": true,
+-                    "waitForDebuggerOnStart": true,
+-                    "flatten": true,
+-                }),
+-                Some(&session_id),
+-                self.page_timeout,
+-            )
+-            .await;
++        // Children are attached only to pause their requests too.
++        if pause_requests {
++            let _ = conn
++                .send_recv(
++                    "Target.setAutoAttach",
++                    serde_json::json!({
++                        "autoAttach": true,
++                        "waitForDebuggerOnStart": true,
++                        "flatten": true,
++                    }),
++                    Some(&session_id),
++                    self.page_timeout,
++                )
++                .await;
++        }
+         // Not repeated at browser scope. Service workers and shared workers are
+         // not children of the page target, so this does not reach them, and
+         // their `fetch` is the one remaining path that can carry a response back
+@@ -3421,6 +3524,29 @@ impl CdpRenderer {
                      (html, true)
                  }
              };
@@ -266,7 +376,7 @@ index c0ebe4f..7e18164 100644
              // Screenshot capture runs AFTER the page-load budget race resolves,
              // with its own timeout. A full-page capture of a heavy page must not
              // be cancelled by the nav budget (which closes the WS mid-capture and
-@@ -3700,6 +3770,15 @@ impl CdpRenderer {
+@@ -3700,6 +3826,15 @@ impl CdpRenderer {
          {
              tracing::debug!(url = %LogUrl(&url), "SPA selector poll exhausted budget");
          }
@@ -282,7 +392,7 @@ index c0ebe4f..7e18164 100644
          let t_selector_ms = _sel_t.elapsed().as_millis() as u64;
  
          // 4. Get rendered HTML.
-@@ -4811,8 +4890,15 @@ mod tests {
+@@ -4811,8 +4946,17 @@ mod tests {
      }
  
      #[test]
@@ -292,7 +402,9 @@ index c0ebe4f..7e18164 100644
 +        assert!(is_challenge_page(
 +            "<script src=\"/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1\"></script>"
 +        ));
-+        assert!(is_challenge_page("<script>window._cf_chl_opt = {};</script>"));
++        assert!(is_challenge_page(
++            "<script>window._cf_chl_opt = {};</script>"
++        ));
 +        // Cloudflare's telemetry loader is on ordinary and cleared pages too.
 +        assert!(!is_challenge_page(
 +            "<script src=\"/cdn-cgi/challenge-platform/scripts/jsd/main.js\"></script>"
@@ -300,13 +412,24 @@ index c0ebe4f..7e18164 100644
      }
  
      #[test]
-@@ -4821,13 +4907,15 @@ mod tests {
+@@ -4821,13 +4965,26 @@ mod tests {
      }
  
      #[test]
 -    fn challenge_page_requires_both_words_for_generic_challenge_cloudflare_combo() {
 -        // "challenge" alone (no "cloudflare") must NOT trip the detector —
 -        // otherwise any page mentioning a coding challenge would false-positive.
++    fn challenge_page_detects_kasada() {
++        // hyatt.com's, served with HTTP 429, and the older form.
++        assert!(is_challenge_page(
++            "<script>window.KPSDK={};KPSDK.now=Date.now.bind(Date);KPSDK.start=KPSDK.now();</script>"
++        ));
++        assert!(is_challenge_page(
++            "<script>window.KPSDK={};KPSDK.now=Date.now;KPSDK.scriptStart=KPSDK.now();</script>"
++        ));
++    }
++
++    #[test]
 +    fn challenge_page_ignores_pages_that_mention_challenges() {
          assert!(!is_challenge_page(
              "<p>Take our coding challenge to join!</p>"

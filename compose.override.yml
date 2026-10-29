@@ -28,6 +28,17 @@ services:
       # media and analytics to save time, and pages can tell (a missing image
       # has no size; a bot check's script may be on the blocked list).
       - CRW_RENDERER__CHROME_INTERCEPT_RESOURCES=false
+      # Open pages in Chrome's own profile, as a person's browser does.
+      # Upstream's context pool gives each page a separate browser context,
+      # which is an incognito window as far as pages can tell (its storage
+      # quota gives it away), and fingerprint.com reports it as one.
+      - CRW_RENDERER__CHROME_CONTEXT_POOL_ENABLED=false
+      # Let Chrome's requests go straight out, as in a person's browser.
+      # Upstream pauses each one to check it against private network ranges,
+      # which breaks some anti-bot scripts (Kasada's cleared one cold visit
+      # in four). Chrome's own Local Network Access still asks before a public
+      # page reaches a private address (cdp-stealth.patch adds this switch).
+      - CRW_RENDERER__CHROME_OUTBOUND_CHECK=false
       # crw sends this User-Agent from every tier (upstream's is "CRW/0.0.1").
       # scripts/up.sh sets CRW_USER_AGENT to match chrome-stealth's Chrome.
       - CRW_CRAWLER__USER_AGENT=${CRW_USER_AGENT:-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36}
