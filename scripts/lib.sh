@@ -25,7 +25,13 @@ load_env() {
 }
 load_env
 
-export PROJECT="${PROJECT:-crw-config}"
+# A checkout's stack is crw-config, a release install's (no Justfile) crw-aio.
+# The install's .env says so too, but its first start runs before that exists.
+if [[ -f "$ROOT/Justfile" ]]; then
+  export PROJECT="${PROJECT:-crw-config}"
+else
+  export PROJECT="${PROJECT:-crw-aio}"
+fi
 export TAG="${TAG:-local}"
 
 # Set KEY=value in .env, replacing an existing line.
@@ -155,25 +161,17 @@ camoufox_arch() {
   esac
 }
 
-# A release bundle (scripts/release-bundle.sh) has one generated compose.yml
-# with pinned registry images; a checkout layers our override on upstream's files.
+# The stack is docker-compose.yml: this repo's, or the one a release bundle
+# (scripts/release-bundle.sh) generates from it with pinned registry images.
 compose() {
   ensure_env
-  if [[ -f "$ROOT/compose.yml" ]]; then
-    docker compose -p "$PROJECT" --env-file "$ROOT/.env" -f "$ROOT/compose.yml" "$@"
-    return
-  fi
-  docker compose -p "$PROJECT" --env-file "$ROOT/.env" \
-    -f "$(src_dir crw)/docker-compose.yml" \
-    -f "$(src_dir crw)/docker-compose.stealth.yml" \
-    -f "$ROOT/compose.override.yml" \
-    --profile stealth "$@"
+  docker compose -p "$PROJECT" --env-file "$ROOT/.env" -f "$ROOT/docker-compose.yml" "$@"
 }
 
 crw_url() { echo "http://127.0.0.1:${CRW_HOST_PORT:-3000}"; }
 
 # Name a command in messages: `just <recipe>` in a checkout, `crw-aio <cmd>` in
-# a release bundle (which has a compose.yml and no Justfile).
+# a release bundle (which has no Justfile).
 hint() {
-  if [[ -f "$ROOT/compose.yml" ]]; then echo "crw-aio $2"; else echo "just $1"; fi
+  if [[ -f "$ROOT/Justfile" ]]; then echo "just $1"; else echo "crw-aio $2"; fi
 }

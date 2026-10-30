@@ -36,5 +36,12 @@ patch_line "$BUILD/camofox-browser.Dockerfile.tmp" "$BUILD/camofox-browser.Docke
   'RUN --mount=type=bind,from=camoufox,target=/camoufox-dist case "${TARGETARCH}" in \'
 rm "$BUILD/camofox-browser.Dockerfile.tmp"
 
+# docker-compose.yml started from crw's compose files and lists their blob ids.
+for f in docker-compose.yml docker-compose.stealth.yml config/searxng/settings.yml; do
+  blob="$(git -C "$(src_dir crw)" hash-object "$f" 2>/dev/null || echo gone)"
+  grep -q "$f *$blob" "$ROOT/docker-compose.yml" ||
+    warn "crw changed $f since docker-compose.yml was written: see git -C $(src_dir crw) log -p -- $f, then update its blob id in docker-compose.yml"
+done
+
 log "searxng: freeze version"
 (cd "$(src_dir searxng)" && python3 -I searx/version.py freeze >/dev/null)

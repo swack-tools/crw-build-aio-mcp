@@ -39,7 +39,7 @@ case "$cmd" in
     ;;
   uninstall)
     # Only ever delete a directory that is an installed bundle.
-    [[ -f "$ROOT/compose.yml" && -x "$ROOT/bin/crw-aio" ]] || die "$ROOT does not look like a crw-aio install"
+    [[ -f "$ROOT/docker-compose.yml" && -x "$ROOT/bin/crw-aio" ]] || die "$ROOT does not look like a crw-aio install"
     [[ -t 0 ]] || die "no terminal to confirm on"
     read -r -p "Remove the crw MCP entries, stop the stack and delete $ROOT? [y/N] " answer
     [[ "$answer" =~ ^[Yy] ]] || die "aborted; nothing was changed"
