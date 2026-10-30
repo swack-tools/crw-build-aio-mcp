@@ -1,5 +1,5 @@
 diff --git a/crates/crw-extract/src/lib.rs b/crates/crw-extract/src/lib.rs
-index c4536cfb..fe022670 100644
+index c4536cfb..00a78665 100644
 --- a/crates/crw-extract/src/lib.rs
 +++ b/crates/crw-extract/src/lib.rs
 @@ -1107,7 +1107,7 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
@@ -11,7 +11,7 @@ index c4536cfb..fe022670 100644
                  paragraphs.push(s.to_string());
              }
          });
-@@ -1123,6 +1123,115 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
+@@ -1123,6 +1123,137 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
      Some(joined)
  }
  
@@ -42,11 +42,12 @@ index c4536cfb..fe022670 100644
 +}
 +
 +/// `s` as a reader sees it, for [`looks_like_prose`]: HTML tags (`<p>`,
-+/// `</strong>`, `<a href="...">`) become a space, a no-break space entity
-+/// (`&nbsp;`, `&#160;`, `&#xa0;`) a space and any other entity (`&amp;`,
-+/// `&#8217;`) one letter, so neither counts as code punctuation. A `<` that
-+/// doesn't open a tag (`a < b`) is kept. One pass: a scan for a tag's `>`
-+/// stops at the next `<` and resumes there.
++/// `</strong>`, `<a href="...">`) become a space and entities are decoded. A
++/// numeric reference (`&#32;`, `&#x4E2D;`) becomes its character, a named
++/// space (`&nbsp;`, `&ensp;`, `&thinsp;`...) a space and any other named
++/// entity (`&amp;`, `&rsquo;`) one letter, so its `;` doesn't count as code
++/// punctuation. A `<` that doesn't open a tag (`a < b`) is kept. One pass: a
++/// scan for a tag's `>` stops at the next `<` and resumes there.
 +fn visible_text(s: &str) -> String {
 +    let b = s.as_bytes();
 +    let mut out = String::with_capacity(s.len());
@@ -82,21 +83,10 @@ index c4536cfb..fe022670 100644
 +                    .take(10)
 +                    .position(|&c| c == b';')
 +                    .map(|p| i + 1 + p);
-+                let entity = end.map(|e| &s[i + 1..e]).filter(|name| {
-+                    let digits = name
-+                        .strip_prefix('#')
-+                        .map(|n| n.strip_prefix(['x', 'X']).unwrap_or(n));
-+                    match digits {
-+                        Some(d) => !d.is_empty() && d.bytes().all(|c| c.is_ascii_hexdigit()),
-+                        None => !name.is_empty() && name.bytes().all(|c| c.is_ascii_alphanumeric()),
-+                    }
-+                });
-+                match (entity, end) {
-+                    (Some(name), Some(e)) => {
++                match end.and_then(|e| Some((decode_entity(&s[i + 1..e])?, e))) {
++                    Some((c, e)) => {
 +                        out.push_str(&s[copied..i]);
-+                        let nbsp =
-+                            matches!(name.to_ascii_lowercase().as_str(), "nbsp" | "#160" | "#xa0");
-+                        out.push(if nbsp { ' ' } else { 'x' });
++                        out.push(c);
 +                        copied = e + 1;
 +                        i = e + 1;
 +                    }
@@ -108,6 +98,38 @@ index c4536cfb..fe022670 100644
 +    }
 +    out.push_str(&s[copied..]);
 +    out
++}
++
++/// The character an entity body (between `&` and `;`) stands for in
++/// [`visible_text`], or `None` if it isn't one.
++fn decode_entity(name: &str) -> Option<char> {
++    if let Some(num) = name.strip_prefix('#') {
++        let code = match num.strip_prefix(['x', 'X']) {
++            Some(hex) => u32::from_str_radix(hex, 16).ok()?,
++            None => num.parse().ok()?,
++        };
++        let c = char::from_u32(code)?;
++        return Some(if c.is_whitespace() { ' ' } else { c });
++    }
++    if name.is_empty() || !name.bytes().all(|c| c.is_ascii_alphanumeric()) {
++        return None;
++    }
++    let space = matches!(
++        name,
++        "nbsp"
++            | "ensp"
++            | "emsp"
++            | "emsp13"
++            | "emsp14"
++            | "thinsp"
++            | "hairsp"
++            | "numsp"
++            | "puncsp"
++            | "MediumSpace"
++            | "NewLine"
++            | "Tab"
++    );
++    Some(if space { ' ' } else { 'x' })
 +}
 +
 +/// Letters of scripts that don't put spaces between words.
@@ -127,7 +149,7 @@ index c4536cfb..fe022670 100644
  fn walk_json_strings(value: &serde_json::Value, on_string: &mut dyn FnMut(&str)) {
      match value {
          serde_json::Value::String(s) => {
-@@ -1224,11 +1333,15 @@ mod private_tests {
+@@ -1224,11 +1355,15 @@ mod private_tests {
  
      #[test]
      fn xhr_extract_collects_long_string_fields() {
@@ -146,7 +168,7 @@ index c4536cfb..fe022670 100644
              "url": "https://example.com/should/skip",
          })
          .to_string();
-@@ -1241,13 +1354,121 @@ mod private_tests {
+@@ -1241,13 +1376,141 @@ mod private_tests {
              body_size_bytes: 800,
          }];
          let got = extract_xhr_text(&resp).expect("expected long-text fields");
@@ -251,6 +273,26 @@ index c4536cfb..fe022670 100644
 +        assert_eq!(
 +            visible_text("Tom & Jerry; a&b c&#;d"),
 +            "Tom & Jerry; a&b c&#;d"
++        );
++    }
++
++    #[test]
++    fn prose_check_decodes_numeric_and_space_entities() {
++        let plain = "The council voted on Tuesday to extend the library's opening hours, and residents said the change would help students and shift workers.";
++        for space in ["&#32;", "&#x20;", "&ensp;", "&emsp;", "&thinsp;"] {
++            assert!(
++                looks_like_prose(&plain.replace(' ', space)),
++                "spaces as {space}"
++            );
++        }
++        let zh = "市议会周二投票决定延长图书馆的开放时间。居民表示，延长晚间开放时间将有助于学生和轮班工人，试点计划将持续到春季。";
++        let encoded: String = zh.chars().map(|c| format!("&#{};", c as u32)).collect();
++        assert!(looks_like_prose(&encoded), "decimal references");
++        let hex: String = zh.chars().map(|c| format!("&#x{:X};", c as u32)).collect();
++        assert!(looks_like_prose(&hex), "hex references");
++        assert_eq!(
++            visible_text("a&#60;b &#xZZ; &#1114112; &bogus-name;"),
++            "a<b &#xZZ; &#1114112; &bogus-name;"
 +        );
 +    }
 +
