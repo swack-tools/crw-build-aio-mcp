@@ -1,5 +1,5 @@
 diff --git a/crates/crw-extract/src/lib.rs b/crates/crw-extract/src/lib.rs
-index c4536cfb..f2bd0ed1 100644
+index c4536cfb..fe022670 100644
 --- a/crates/crw-extract/src/lib.rs
 +++ b/crates/crw-extract/src/lib.rs
 @@ -1107,7 +1107,7 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
@@ -11,20 +11,20 @@ index c4536cfb..f2bd0ed1 100644
                  paragraphs.push(s.to_string());
              }
          });
-@@ -1123,6 +1123,71 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
+@@ -1123,6 +1123,115 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
      Some(joined)
  }
  
 +/// Whether a captured JSON string reads as text for a person. Pages also fetch
 +/// JSON whose long strings are anti-bot sensor payloads (PerimeterX's base64
 +/// `ob` field), bundled JavaScript or CSS; taken for prose, they became the
-+/// whole markdown of chegg.com and homedepot.com. Judged on the text left once
-+/// HTML tags are dropped (article JSON often carries `<p>` or `<strong>`):
++/// whole markdown of chegg.com and homedepot.com. Judged on the text a reader
++/// would see (article JSON often carries `<p>`, `<strong>` or `&nbsp;`):
 +/// prose has little code punctuation, and either spaces between short words
 +/// or, in scripts written without spaces (Chinese, Japanese, Thai...), mostly
 +/// that script's letters.
 +fn looks_like_prose(s: &str) -> bool {
-+    let text = without_tags(s);
++    let text = visible_text(s);
 +    let chars = text.chars().count();
 +    let code = text
 +        .chars()
@@ -41,28 +41,72 @@ index c4536cfb..f2bd0ed1 100644
 +    words.len() >= 8 && words.iter().all(|w| w.chars().count() <= 60)
 +}
 +
-+/// `s` with HTML tags (`<p>`, `</strong>`, `<br/>`, `<a href="...">`) replaced
-+/// by spaces. A `<` not followed by a letter or `/letter` (`a < b`) is kept.
-+fn without_tags(s: &str) -> String {
++/// `s` as a reader sees it, for [`looks_like_prose`]: HTML tags (`<p>`,
++/// `</strong>`, `<a href="...">`) become a space, a no-break space entity
++/// (`&nbsp;`, `&#160;`, `&#xa0;`) a space and any other entity (`&amp;`,
++/// `&#8217;`) one letter, so neither counts as code punctuation. A `<` that
++/// doesn't open a tag (`a < b`) is kept. One pass: a scan for a tag's `>`
++/// stops at the next `<` and resumes there.
++fn visible_text(s: &str) -> String {
++    let b = s.as_bytes();
 +    let mut out = String::with_capacity(s.len());
-+    let mut rest = s;
-+    while let Some(i) = rest.find('<') {
-+        out.push_str(&rest[..i]);
-+        let after = &rest[i + 1..];
-+        let name = after.strip_prefix('/').unwrap_or(after);
-+        let is_tag = name.starts_with(|c: char| c.is_ascii_alphabetic());
-+        match after.find('>') {
-+            Some(end) if is_tag && !after[..end].contains('<') => {
-+                out.push(' ');
-+                rest = &after[end + 1..];
++    let (mut i, mut copied) = (0, 0);
++    while i < b.len() {
++        match b[i] {
++            b'<' => {
++                let name = if b.get(i + 1) == Some(&b'/') {
++                    i + 2
++                } else {
++                    i + 1
++                };
++                if !b.get(name).is_some_and(u8::is_ascii_alphabetic) {
++                    i += 1;
++                    continue;
++                }
++                let mut j = name;
++                while j < b.len() && b[j] != b'>' && b[j] != b'<' {
++                    j += 1;
++                }
++                if b.get(j) == Some(&b'>') {
++                    out.push_str(&s[copied..i]);
++                    out.push(' ');
++                    copied = j + 1;
++                    i = j + 1;
++                } else {
++                    i = j;
++                }
 +            }
-+            _ => {
-+                out.push('<');
-+                rest = after;
++            b'&' => {
++                let end = b[i + 1..]
++                    .iter()
++                    .take(10)
++                    .position(|&c| c == b';')
++                    .map(|p| i + 1 + p);
++                let entity = end.map(|e| &s[i + 1..e]).filter(|name| {
++                    let digits = name
++                        .strip_prefix('#')
++                        .map(|n| n.strip_prefix(['x', 'X']).unwrap_or(n));
++                    match digits {
++                        Some(d) => !d.is_empty() && d.bytes().all(|c| c.is_ascii_hexdigit()),
++                        None => !name.is_empty() && name.bytes().all(|c| c.is_ascii_alphanumeric()),
++                    }
++                });
++                match (entity, end) {
++                    (Some(name), Some(e)) => {
++                        out.push_str(&s[copied..i]);
++                        let nbsp =
++                            matches!(name.to_ascii_lowercase().as_str(), "nbsp" | "#160" | "#xa0");
++                        out.push(if nbsp { ' ' } else { 'x' });
++                        copied = e + 1;
++                        i = e + 1;
++                    }
++                    _ => i += 1,
++                }
 +            }
++            _ => i += 1,
 +        }
 +    }
-+    out.push_str(rest);
++    out.push_str(&s[copied..]);
 +    out
 +}
 +
@@ -83,7 +127,7 @@ index c4536cfb..f2bd0ed1 100644
  fn walk_json_strings(value: &serde_json::Value, on_string: &mut dyn FnMut(&str)) {
      match value {
          serde_json::Value::String(s) => {
-@@ -1224,11 +1289,15 @@ mod private_tests {
+@@ -1224,11 +1333,15 @@ mod private_tests {
  
      #[test]
      fn xhr_extract_collects_long_string_fields() {
@@ -102,7 +146,7 @@ index c4536cfb..f2bd0ed1 100644
              "url": "https://example.com/should/skip",
          })
          .to_string();
-@@ -1241,13 +1310,87 @@ mod private_tests {
+@@ -1241,13 +1354,121 @@ mod private_tests {
              body_size_bytes: 800,
          }];
          let got = extract_xhr_text(&resp).expect("expected long-text fields");
@@ -188,6 +232,40 @@ index c4536cfb..f2bd0ed1 100644
 +        assert!(!looks_like_prose(
 +            "if (a < b && c > d) { x = y; } else { z = (w); } return t; function q() { r = s; }"
 +        ));
++    }
++
++    #[test]
++    fn prose_check_decodes_entities() {
++        let plain = "The council voted on Tuesday to extend the library's opening hours, and residents said the change would help students and shift workers.";
++        assert!(looks_like_prose(plain));
++        assert!(looks_like_prose(&plain.replace(' ', "&nbsp;")));
++        assert!(looks_like_prose(
++            &plain.replace(' ', "&#160;").replace('\'', "&#8217;")
++        ));
++        assert!(looks_like_prose(
++            &plain
++                .replace("library's", "library&rsquo;s")
++                .replace(" and ", " &amp; ")
++        ));
++        // A stray ampersand or semicolon is not an entity.
++        assert_eq!(
++            visible_text("Tom & Jerry; a&b c&#;d"),
++            "Tom & Jerry; a&b c&#;d"
++        );
++    }
++
++    #[test]
++    fn visible_text_is_one_pass() {
++        // Unclosed `<` runs used to be rescanned to the end each time.
++        let field = format!("Updated: {}", "<".repeat(400_000));
++        let started = std::time::Instant::now();
++        assert!(!looks_like_prose(&field));
++        assert!(started.elapsed() < std::time::Duration::from_secs(1));
++        assert_eq!(visible_text("a <b <i>x</i> c<d"), "a <b  x  c<d");
++        assert_eq!(
++            visible_text("x < y and <a href=\"/m\">link</a>"),
++            "x < y and  link "
++        );
 +    }
 +
      #[test]
