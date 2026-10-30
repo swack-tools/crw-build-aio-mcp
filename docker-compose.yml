@@ -10,6 +10,7 @@ services:
   crw:
     image: ${PROJECT:-crw-config}/crw:${TAG:-local}
     pull_policy: never
+    restart: unless-stopped
     # Loopback unless CRW_BIND_ADDRESS says otherwise (upstream binds 0.0.0.0).
     ports:
       - ${CRW_BIND_ADDRESS:-127.0.0.1}:${CRW_HOST_PORT:-3000}:3000

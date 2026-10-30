@@ -34,7 +34,39 @@ just test-stealth-codex             # ... and by codex exec
 
 Every install/uninstall recipe prints the exact commands and config diffs, then asks `Apply these changes? [y/N]`. Add `--dry-run` to only print, or `--yes` to skip the question (needed without a terminal).
 
-Requirements: Docker with buildx (a containerd image store is needed for `build-all`), `just`, `git`, `python3` (3.11+), `cargo` (for the native MCP binary), plus the `claude` and `codex` CLIs for those recipes. It is developed on Apple Silicon (arm64) with OrbStack.
+Requirements: Docker with buildx (a containerd image store is needed for `build-all`), `just`, `git`, `python3` (3.11+), `curl`, `openssl`, `lsof`, `column`, `cargo` (for the native MCP binary), plus the `claude` and `codex` CLIs for those recipes. It is developed on Apple Silicon (arm64) with OrbStack.
+
+To skip the hours of compiling Camoufox, add `CAMOUFOX_DIST_REGISTRY=docker.io/swackhamer/` to `.env` before the first build. It fetches the zip CI built, when CI has one for the same sources.
+
+### On Linux
+
+The build and the stack also run on Linux (checked on Ubuntu, arm64). Some things differ from a Mac:
+
+- `column` comes from `bsdextrautils` on Debian and Ubuntu: `sudo apt install just bsdextrautils lsof`. Without `lsof`, a busy port goes unnoticed until `compose up` fails on it.
+- If a build stops at `apt-get` with `Invalid cross-device link`, Docker's own builder has hit a limit of overlay2 on btrfs. Build with a container builder instead, which `just` picks up from the environment:
+  ```sh
+  docker buildx create --name crw-build --driver docker-container
+  BUILDX_BUILDER=crw-build just up-stealth
+  ```
+- The MCP recipes register Claude Code and Codex. There is no Claude Desktop step, since that one is macOS only.
+
+## Use it
+
+crw speaks Firecrawl's API on `http://127.0.0.1:3000` (see **Ports**). Leave `renderer` unset to get the stealth order above.
+
+```sh
+# one page
+curl -s localhost:3000/v1/scrape -H 'content-type: application/json' \
+  -d '{"url":"https://example.com","formats":["markdown"]}'
+# search; hits are in data.results
+curl -s localhost:3000/v1/search -H 'content-type: application/json' \
+  -d '{"query":"crw scraper","limit":5}'
+# search, and scrape each hit (data.results[].markdown)
+curl -s localhost:3000/v1/search -H 'content-type: application/json' \
+  -d '{"query":"crw scraper","limit":3,"scrapeOptions":{"formats":["markdown"]}}'
+```
+
+A search goes through SearXNG to public search engines without a browser, so only the scrape of each hit uses the stealth tiers. The MCP server offers the same as `crw_scrape` and `crw_search`, plus `crw_crawl`, `crw_map`, `crw_extract` and `crw_parse_file`.
 
 ## Recipes
 
@@ -65,10 +97,10 @@ Requirements: Docker with buildx (a containerd image store is needed for `build-
   - The builder runs as linux/amd64 and cross-compiles to arm64 or x86_64, which is the path upstream tests.
   - Its base image is pinned to `ubuntu:24.04` because `26.04`'s tar fails under Rosetta.
   - Toolchains are kept in a named Docker volume per Firefox version, and ccache in one that outlives versions, so rebuilds are incremental.
-  - A cold build takes hours under emulation. To skip it, set `CAMOUFOX_DIST_REGISTRY=docker.io/<user>/` (or `REGISTRY`) in `.env`. The script then fetches the zip CI built from the same inputs, in about a minute, and compiles only when there is none. `CAMOUFOX_PULL=0` or `FORCE=1` always compiles.
+  - A cold build takes hours under emulation. To skip it, set `CAMOUFOX_DIST_REGISTRY=docker.io/<user>/` (or `REGISTRY`) in `.env`. The script then fetches the zip CI built from the same inputs, in about a minute, and compiles only when there is none. This repo's CI publishes to `docker.io/swackhamer/`. `CAMOUFOX_PULL=0` or `FORCE=1` always compiles.
 - **Images:** `docker-bake.hcl` builds the images.
   - Upstream Dockerfiles that build `FROM` a registry image (`searxng/base:*`) get bake targets built here instead, wired in through `contexts`.
-  - `scripts/prep-sources.sh` patches camofox-browser's Dockerfile to install our Camoufox zip instead of downloading a release. It also applies `patches/<name>/*.patch` to the checkouts, and `fetch-sources.sh --update` reverts them before pulling. Either one fails loudly if upstream changes what it patches.
+  - `scripts/prep-sources.sh` patches camofox-browser's Dockerfile to install our Camoufox zip instead of downloading a release. It also reapplies `patches/<name>/*.patch` to the checkouts on each run, and `fetch-sources.sh --update` reverts them before pulling. Either one fails loudly if upstream changes what it patches.
 - **Compose:** `docker-compose.yml` is this repo's own, so running the stack doesn't need `src/`. It started from the `docker-compose.yml` and `docker-compose.stealth.yml` in crw's repo and keeps their hardening (memory and process limits, read-only root filesystems, no capabilities).
   - It runs the local images, without upstream's Lightpanda and browserless services, and adds the `camofox` service, which crw reaches through `CRW_RENDERER__CAMOUFOX__BASE_URL`. SearXNG gets crw's `config/searxng/settings.yml`.
   - Its header lists the git blob ids of the upstream files it came from; `prep-sources.sh` warns when upstream changes one, so the change can be weighed here.

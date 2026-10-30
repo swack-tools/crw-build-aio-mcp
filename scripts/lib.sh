@@ -103,7 +103,7 @@ camoufox_key() {
 }
 
 # Our fixes to upstream source live in patches/<name>/*.patch. prep-sources.sh
-# applies them (a no-op when already applied); fetch-sources.sh reverts them
+# reapplies them on each run; fetch-sources.sh reverts them
 # before pulling. A patch that no longer applies stops the build. They apply in
 # name order, since a later one can build on an earlier one's lines (compgen
 # lists them in directory order).
@@ -113,12 +113,14 @@ apply_patches() {
   local name="$1" dir patch override
   dir="$(src_dir "$name")"
   override="SRC_$(env_name "$name")"
+  # Start clean: once a later patch has changed an earlier one's lines, the
+  # earlier one can't be recognized as applied, so a rerun would stop here.
+  [[ -n "${!override:-}" ]] || revert_patches "$name"
   for patch in $(patch_files "$name"); do
     if [[ -n "${!override:-}" ]]; then
       warn "$name: $override is your checkout, so it is not patched; apply $patch yourself"
       return
     fi
-    git -C "$dir" apply --reverse --check "$patch" 2>/dev/null && continue
     git -C "$dir" apply --check "$patch" 2>/dev/null ||
       die "$(basename "$patch") no longer applies to $name: upstream changed, update patches/$name/"
     git -C "$dir" apply "$patch"

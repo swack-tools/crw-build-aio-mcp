@@ -118,6 +118,8 @@ target_claude() {
     warn "claude CLI not found; skipping Claude Code"
   fi
 
+  # Only the macOS app is handled; elsewhere that path would be a stray file.
+  [[ "$(uname -s)" == Darwin ]] || return 0
   log "Claude Desktop ($action)"
   close_claude_desktop
   edit_config claude-desktop "$HOME/Library/Application Support/Claude/claude_desktop_config.json"
