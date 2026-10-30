@@ -58,8 +58,6 @@ jobs:
           ref: ${{ needs.version.outputs.tag }}
       - name: Assemble the compose bundle
         run: |
-          read -ra refs <<< "$REFS" && export "${refs[@]}"
-          scripts/fetch-sources.sh crw
           scripts/release-bundle.sh "${REGISTRY}crw-config-" "$VERSION" bundle "$VERSION"
           # tar keeps the exec bits and .env.example, which artifacts drop.
           tar -C bundle -czf bundle.tgz .

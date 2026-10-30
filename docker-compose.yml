@@ -1,17 +1,30 @@
-# Layered on src/crw/docker-compose.yml + docker-compose.stealth.yml, so the
-# upstream service settings and hardening stay in effect (see `compose` in
-# scripts/lib.sh). This file swaps in our locally built images, adds the
-# Camoufox tier and makes the stealth tiers crw's default. Relative paths here
-# would resolve against src/crw/.
+# The stack: crw with stealth Chrome, Camoufox and SearXNG, on the images
+# `just build` makes (scripts/release-bundle.sh pins a release's to the
+# registry's). It started from the compose files in crw's repo and keeps
+# their hardening. scripts/prep-sources.sh warns when upstream changes one of
+# these crw files (git blob ids), so the change can be weighed here:
+#   docker-compose.yml           139b4e2d6fbac724e7034f38da0c93ddd7f382c4
+#   docker-compose.stealth.yml   dc04ca0872ee3423b23a64c22b6bc0094a22ee10
+#   config/searxng/settings.yml  5f88f417910c58e4995b4452d03a40f47d70fdb8
 services:
   crw:
     image: ${PROJECT:-crw-config}/crw:${TAG:-local}
-    build: !reset null
     pull_policy: never
-    # Upstream binds 0.0.0.0 unless CRW_BIND_ADDRESS is set; default to loopback.
-    ports: !override
+    # Loopback unless CRW_BIND_ADDRESS says otherwise (upstream binds 0.0.0.0).
+    ports:
       - ${CRW_BIND_ADDRESS:-127.0.0.1}:${CRW_HOST_PORT:-3000}:3000
+    depends_on:
+      camofox:
+        condition: service_healthy
+      chrome-stealth:
+        condition: service_healthy
+      searxng:
+        condition: service_healthy
     environment:
+      - RUST_LOG=info
+      # The config.docker.toml built into the image; these settings override it.
+      - CRW_CONFIG=config.docker
+      - CRW_RENDERER__CHROME_POOL__SIZE=4
       - CRW_RENDERER__IMPERSONATED__ENABLED=true
       - CRW_RENDERER__CAMOUFOX__BASE_URL=http://camofox:9377
       # Auto mode's JS renderer is stealth Chrome, then Camoufox when Chrome
@@ -49,34 +62,65 @@ services:
       # challenge (5-15s) early.
       - CRW_RENDERER__CHROME_CHALLENGE_MAX_RETRIES=8
       - CRW_RENDERER__CHROME_NAV_BUDGET_MS=40000
-    depends_on: !override
-      camofox:
-        condition: service_healthy
-      chrome-stealth:
-        condition: service_healthy
-      searxng:
-        condition: service_healthy
+    # Upstream's limits for untrusted pages and PDFs: a bounded cgroup, no
+    # swap, no fork bombs, a read-only root with /tmp the only scratch, and
+    # no capabilities or privilege gain.
+    mem_limit: 2g
+    memswap_limit: 2g
+    pids_limit: 512
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
+  # Backs /v1/search; only crw reaches it. config/searxng/settings.yml is
+  # crw's: JSON results on, SearXNG's own limiter off.
   searxng:
     image: ${PROJECT:-crw-config}/searxng:${TAG:-local}
     pull_policy: never
+    restart: unless-stopped
+    environment:
+      - SEARXNG_BASE_URL=http://searxng:8080/
+      - SEARXNG_SECRET_KEY=${SEARXNG_SECRET_KEY:-change-me-with-openssl-rand-hex-32-please}
+    volumes:
+      - ./config/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 256
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+      - /var/cache/searxng:size=128m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
-  # Unused with mode = chrome, so it is neither built nor started.
-  lightpanda:
-    profiles: ["lightpanda"]
-
+  # Google Chrome on a virtual display (docker/chrome-stealth). Only crw
+  # talks to it, over the compose network. scripts/up.sh sets CRW_TZ to this
+  # machine's timezone.
   chrome-stealth:
     image: ${PROJECT:-crw-config}/chrome-stealth:${TAG:-local}
     pull_policy: never
-    # Only crw talks to it, over the compose network.
-    ports: !reset []
-    # Google Chrome on a virtual display (docker/chrome-stealth), not the
-    # browserless server upstream runs, so none of browserless's settings
-    # apply. scripts/up.sh sets CRW_TZ to this machine's timezone.
-    environment: !override
+    restart: unless-stopped
+    environment:
       - TZ=${CRW_TZ:-UTC}
     # Reaps Chrome's exited child processes.
     init: true
+    shm_size: 2g
+    mem_limit: 3g
+    memswap_limit: 3g
+    tmpfs:
+      - /tmp:size=512m
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9222/json/version"]
       interval: 15s
@@ -84,17 +128,18 @@ services:
       retries: 5
       start_period: 15s
 
+  # Camoufox behind camofox-browser's REST server, crw's fallback when
+  # Chrome is blocked.
   camofox:
     image: ${PROJECT:-crw-config}/camofox:${TAG:-local}
     pull_policy: never
-    profiles: ["stealth"]
     restart: unless-stopped
     environment:
       - CAMOFOX_PORT=9377
       - CAMOFOX_CRASH_REPORT_ENABLED=false
       - MAX_OLD_SPACE_SIZE=512
       - TZ=${CRW_TZ:-UTC}
-    shm_size: "2g"
+    shm_size: 2g
     mem_limit: 4g
     memswap_limit: 4g
     healthcheck:

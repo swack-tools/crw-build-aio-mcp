@@ -4,7 +4,7 @@ Run [CRW](https://github.com/fastcrw/crw), the Firecrawl-compatible scraper, loc
 
 | tier | what it is | where it runs |
 |---|---|---|
-| `chrome` via `--profile stealth` | Google Chrome on a virtual display, driven over plain CDP | `chrome-stealth` container |
+| `chrome` | Google Chrome on a virtual display, driven over plain CDP | `chrome-stealth` container |
 | `impersonated-http` | no browser; mimics Chrome's TLS/HTTP2 fingerprint | inside crw |
 | `camoufox` | Camoufox, a fingerprint-spoofing Firefox fork, behind the camofox-browser REST server | `camofox` container |
 
@@ -69,8 +69,9 @@ Requirements: Docker with buildx (a containerd image store is needed for `build-
 - **Images:** `docker-bake.hcl` builds the images.
   - Upstream Dockerfiles that build `FROM` a registry image (`searxng/base:*`) get bake targets built here instead, wired in through `contexts`.
   - `scripts/prep-sources.sh` patches camofox-browser's Dockerfile to install our Camoufox zip instead of downloading a release. It also applies `patches/<name>/*.patch` to the checkouts, and `fetch-sources.sh --update` reverts them before pulling. Either one fails loudly if upstream changes what it patches.
-- **Compose:** `compose.override.yml` is layered on crw's own `docker-compose.yml` and `docker-compose.stealth.yml`, so upstream's settings and hardening still apply.
-  - It swaps in the local images and adds the `camofox` service, which crw reaches through `CRW_RENDERER__CAMOUFOX__BASE_URL`.
+- **Compose:** `docker-compose.yml` is this repo's own, so running the stack doesn't need `src/`. It started from the `docker-compose.yml` and `docker-compose.stealth.yml` in crw's repo and keeps their hardening (memory and process limits, read-only root filesystems, no capabilities).
+  - It runs the local images, without upstream's Lightpanda and browserless services, and adds the `camofox` service, which crw reaches through `CRW_RENDERER__CAMOUFOX__BASE_URL`. SearXNG gets crw's `config/searxng/settings.yml`.
+  - Its header lists the git blob ids of the upstream files it came from; `prep-sources.sh` warns when upstream changes one, so the change can be weighed here.
   - **Stealth by default:** these settings are for a scrape that sets nothing, as an MCP client sends it.
     - `CRW_RENDERER__MODE=chrome`: upstream's `auto` mode tries Lightpanda first, which has no stealth and answers most pages, so Lightpanda is neither built nor started.
     - `CRW_RENDERER__CAMOUFOX__INCLUDE_IN_AUTO=true`: Camoufox is tried when Chrome is blocked.
