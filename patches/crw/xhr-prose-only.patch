@@ -1,5 +1,5 @@
 diff --git a/crates/crw-extract/src/lib.rs b/crates/crw-extract/src/lib.rs
-index c4536cfb..a3abd3a1 100644
+index c4536cfb..f2bd0ed1 100644
 --- a/crates/crw-extract/src/lib.rs
 +++ b/crates/crw-extract/src/lib.rs
 @@ -1107,7 +1107,7 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
@@ -11,31 +11,59 @@ index c4536cfb..a3abd3a1 100644
                  paragraphs.push(s.to_string());
              }
          });
-@@ -1123,6 +1123,43 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
+@@ -1123,6 +1123,71 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
      Some(joined)
  }
  
 +/// Whether a captured JSON string reads as text for a person. Pages also fetch
 +/// JSON whose long strings are anti-bot sensor payloads (PerimeterX's base64
 +/// `ob` field), bundled JavaScript or CSS; taken for prose, they became the
-+/// whole markdown of chegg.com and homedepot.com. Prose has little code
-+/// punctuation, and either spaces between short words or, in scripts written
-+/// without spaces (Chinese, Japanese, Thai...), mostly that script's letters.
++/// whole markdown of chegg.com and homedepot.com. Judged on the text left once
++/// HTML tags are dropped (article JSON often carries `<p>` or `<strong>`):
++/// prose has little code punctuation, and either spaces between short words
++/// or, in scripts written without spaces (Chinese, Japanese, Thai...), mostly
++/// that script's letters.
 +fn looks_like_prose(s: &str) -> bool {
-+    let chars = s.chars().count();
-+    let code = s
++    let text = without_tags(s);
++    let chars = text.chars().count();
++    let code = text
 +        .chars()
 +        .filter(|c| matches!(c, '{' | '}' | ';' | '=' | '(' | ')' | '<' | '>'))
 +        .count();
-+    if code * 50 > chars {
++    if chars == 0 || code * 50 > chars {
 +        return false;
 +    }
-+    let unspaced = s.chars().filter(|&c| is_unspaced_script(c)).count();
++    let unspaced = text.chars().filter(|&c| is_unspaced_script(c)).count();
 +    if unspaced * 10 >= chars * 3 {
 +        return true;
 +    }
-+    let words: Vec<&str> = s.split_whitespace().collect();
++    let words: Vec<&str> = text.split_whitespace().collect();
 +    words.len() >= 8 && words.iter().all(|w| w.chars().count() <= 60)
++}
++
++/// `s` with HTML tags (`<p>`, `</strong>`, `<br/>`, `<a href="...">`) replaced
++/// by spaces. A `<` not followed by a letter or `/letter` (`a < b`) is kept.
++fn without_tags(s: &str) -> String {
++    let mut out = String::with_capacity(s.len());
++    let mut rest = s;
++    while let Some(i) = rest.find('<') {
++        out.push_str(&rest[..i]);
++        let after = &rest[i + 1..];
++        let name = after.strip_prefix('/').unwrap_or(after);
++        let is_tag = name.starts_with(|c: char| c.is_ascii_alphabetic());
++        match after.find('>') {
++            Some(end) if is_tag && !after[..end].contains('<') => {
++                out.push(' ');
++                rest = &after[end + 1..];
++            }
++            _ => {
++                out.push('<');
++                rest = after;
++            }
++        }
++    }
++    out.push_str(rest);
++    out
 +}
 +
 +/// Letters of scripts that don't put spaces between words.
@@ -55,7 +83,7 @@ index c4536cfb..a3abd3a1 100644
  fn walk_json_strings(value: &serde_json::Value, on_string: &mut dyn FnMut(&str)) {
      match value {
          serde_json::Value::String(s) => {
-@@ -1224,11 +1261,15 @@ mod private_tests {
+@@ -1224,11 +1289,15 @@ mod private_tests {
  
      #[test]
      fn xhr_extract_collects_long_string_fields() {
@@ -74,7 +102,7 @@ index c4536cfb..a3abd3a1 100644
              "url": "https://example.com/should/skip",
          })
          .to_string();
-@@ -1241,13 +1282,65 @@ mod private_tests {
+@@ -1241,13 +1310,87 @@ mod private_tests {
              body_size_bytes: 800,
          }];
          let got = extract_xhr_text(&resp).expect("expected long-text fields");
@@ -138,6 +166,28 @@ index c4536cfb..a3abd3a1 100644
 +        for text in [ja, zh, th] {
 +            assert!(got.contains(text), "kept: {text}");
 +        }
++    }
++
++    #[test]
++    fn xhr_extract_keeps_text_with_html_formatting() {
++        // Article JSON often carries inline markup. Strings that start with a
++        // tag are skipped by walk_json_strings, so this one starts with text.
++        let html = "Updated: <p>The council voted on <strong>Tuesday</strong> to extend the library's opening hours.</p><p>Residents said the change would help <em>students</em> and shift workers.</p><p>A pilot will run through the spring, and the council will <a href=\"/minutes\">publish the results</a> before a final vote.</p><p>Staff will add two evening shifts.<br/>Weekend hours stay the same, and the branch reopens after repairs in March.</p>";
++        let body = serde_json::json!({ "body": html }).to_string();
++        let resp = vec![CapturedNetworkResponse {
++            url: "https://api.example.com/article/1".into(),
++            request_id: "1".into(),
++            status: 200,
++            mime_type: Some("application/json".into()),
++            body_size_bytes: body.len(),
++            body: Some(body),
++        }];
++        let got = extract_xhr_text(&resp).expect("HTML-formatted prose is text");
++        assert!(got.contains("opening hours"));
++        assert!(looks_like_prose(html));
++        assert!(!looks_like_prose(
++            "if (a < b && c > d) { x = y; } else { z = (w); } return t; function q() { r = s; }"
++        ));
 +    }
 +
      #[test]
