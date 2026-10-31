@@ -2,10 +2,10 @@
 # Have an agent CLI call crw_scrape through the installed crw MCP server once
 # per stealth tier, then once with only a URL on a Cloudflare challenge (as a
 # plain "scrape this" request would), and check it reports all four as ok.
-# Usage: test-agent.sh <claude|codex>
+# Usage: test-agent.sh <claude|codex|antigravity>
 source "$(dirname "$0")/lib.sh"
 
-agent="${1:?usage: test-agent.sh <claude|codex>}"
+agent="${1:?usage: test-agent.sh <claude|codex|antigravity>}"
 curl -fsS -m 10 "$(crw_url)/v1/capabilities" >/dev/null ||
   die "crw is not answering on $(crw_url) — run: just up-stealth"
 
@@ -34,7 +34,13 @@ case "$agent" in
     codex exec --skip-git-repo-check --ephemeral -c approval_policy='"never"' \
       --output-last-message "$out" "$prompt" </dev/null >/dev/null
     ;;
-  *) die "unknown agent: $agent (claude | codex)" ;;
+  antigravity)
+    agy mcp list 2>/dev/null | grep -q '^crw[[:space:]]' || die "crw is not installed in Antigravity — run: just install-antigravity"
+    log "asking agy (this takes a minute)"
+    # Headless agy denies MCP tools without an allow rule; its error, printed below, says so.
+    agy -p "$prompt" --print-timeout 300s </dev/null > "$out" 2>&1
+    ;;
+  *) die "unknown agent: $agent (claude | codex | antigravity)" ;;
 esac
 
 python3 -I - "$out" "$agent" <<'PY'
