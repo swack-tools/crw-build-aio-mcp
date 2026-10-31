@@ -11,7 +11,8 @@
 # host upstream tests and cross-compiles from. Set CAMOUFOX_BUILDER_PLATFORM to
 # try another. A cold build takes hours under emulation; toolchains persist in
 # a named volume per Firefox version, and ccache in one that outlives versions,
-# so later builds are incremental.
+# so later builds are incremental. CAMOUFOX_CCACHE=<absolute dir> keeps ccache
+# in that directory instead (CI saves it to the GitHub cache between runs).
 source "$(dirname "$0")/lib.sh"
 
 arch="$(camoufox_arch "${1:-$(host_arch)}")"
@@ -70,11 +71,15 @@ platform="${CAMOUFOX_BUILDER_PLATFORM:-linux/amd64}"
 base="${CAMOUFOX_BUILDER_BASE:-ubuntu:24.04}"
 image="$PROJECT/camoufox-builder:$key"
 volume="$PROJECT-camoufox-mozbuild-$version-${platform//\//-}"
-ccache_volume="$PROJECT-camoufox-ccache-${platform//\//-}"
+ccache_volume="${CAMOUFOX_CCACHE:-$PROJECT-camoufox-ccache-${platform//\//-}}"
 # The compile runs detached in a container named per arch, so it outlives this
 # shell: Ctrl-C or a closed terminal leaves it running, and the next run
 # re-attaches to it instead of starting a second compile.
 name="$PROJECT-camoufox-$arch"
+ccache_cmd() {
+  docker run --rm --platform "$platform" -v "$ccache_volume:/root/.ccache" -e CCACHE_DIR=/root/.ccache \
+    --entrypoint ccache "$image" "$@"
+}
 
 if [[ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null)" == true ]]; then
   [[ "$(docker inspect -f '{{.Config.Image}}' "$name")" == "$image" ]] ||
@@ -90,11 +95,16 @@ else
 
   log "compiling camoufox $version for linux/$arch in container $name (volume $volume)"
   rm -f "$DIST"/camoufox-*-lin."$arch".zip
+  ccache_cmd --zero-stats >/dev/null
+  # The source dir is named for the Firefox version, so BASEDIR makes paths
+  # relative; the bootstrapped clang is new in each fresh mozbuild volume, so
+  # check it by content, not mtime. Without either, CI would never hit.
   docker run -d --rm --name "$name" --platform "$platform" \
     -v "$DIST:/app/dist" \
     -v "$volume:/root/.mozbuild" \
     -v "$ccache_volume:/root/.ccache" \
     -e CCACHE_DIR=/root/.ccache -e CCACHE_MAXSIZE="${CCACHE_MAXSIZE:-15G}" \
+    -e CCACHE_BASEDIR=/app -e CCACHE_COMPILERCHECK=content \
     -e CARGO_BUILD_JOBS -e MOZ_PARALLEL_BUILD -e CAMOUFOX_UBO \
     "$image" --target linux --arch "$arch" >/dev/null
   tail=all
@@ -108,6 +118,8 @@ docker logs -f --tail "$tail" "$name" || true
 wait "$waiter" || true
 code="$(cat "$status")"
 rm -f "$status"
+# How much ccache saved this compile (C/C++ only: it can't cache Rust).
+ccache_cmd --show-stats || true
 [[ "$code" == 0 ]] || die "camoufox compile failed (exit ${code:-unknown}); see the log above"
 
 zip="$(zip_for_arch)"
