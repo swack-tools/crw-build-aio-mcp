@@ -3,12 +3,13 @@
 # at this stack via CRW_API_URL.
 #   claude → Claude Code (user scope) + Claude Desktop
 #   codex  → Codex CLI + ChatGPT desktop (both read ~/.codex/config.toml)
-#   all    → both
+#   antigravity → Antigravity app, IDE and agy (all read ~/.gemini/config/mcp_config.json)
+#   all    → all three
 # Shows every command and config diff first, then asks before changing anything.
-# Usage: install-mcp.sh <install|uninstall> <claude|codex|all> [--dry-run] [--yes]
+# Usage: install-mcp.sh <install|uninstall> <claude|codex|antigravity|all> [--dry-run] [--yes]
 source "$(dirname "$0")/lib.sh"
 
-usage="usage: install-mcp.sh <install|uninstall> <claude|codex|all> [--dry-run] [--yes]"
+usage="usage: install-mcp.sh <install|uninstall> <claude|codex|antigravity|all> [--dry-run] [--yes]"
 action="${1:?$usage}"
 target="${2:?$usage}"
 shift 2
@@ -16,8 +17,9 @@ shift 2
 case "$target" in
   claude) targets=(claude) ;;
   codex) targets=(codex) ;;
-  all) targets=(claude codex) ;;
-  *) die "unknown target: $target (claude | codex | all)" ;;
+  antigravity) targets=(antigravity) ;;
+  all) targets=(claude codex antigravity) ;;
+  *) die "unknown target: $target (claude | codex | antigravity | all)" ;;
 esac
 
 dry_run= yes=
@@ -137,6 +139,22 @@ target_codex() {
   fi
 }
 
+antigravity_present() {
+  command -v agy >/dev/null || [[ -x "$HOME/.local/bin/agy" || -d "$HOME/.gemini" ]] && return 0
+  [[ "$(uname -s)" == Darwin ]] &&
+    [[ -d /Applications/Antigravity.app || -d "/Applications/Antigravity IDE.app" ]]
+}
+
+target_antigravity() {
+  log "Antigravity ($action)"
+  # Without Antigravity, that path would be a stray file.
+  if ! antigravity_present; then
+    [[ -z "$preview" ]] || warn "Antigravity not found; skipping it"
+    return 0
+  fi
+  edit_config antigravity "$HOME/.gemini/config/mcp_config.json"
+}
+
 each_target() { for t in "${targets[@]}"; do "target_$t"; done; }
 
 preview=1
@@ -158,3 +176,4 @@ preview=
 each_target
 log "done"
 [[ " ${targets[*]} " != *" codex "* ]] || warn "restart ChatGPT desktop to pick up the change"
+[[ " ${targets[*]} " != *" antigravity "* ]] || ! antigravity_present || warn "restart the Antigravity app or IDE to pick up the change"

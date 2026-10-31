@@ -83,7 +83,7 @@ caps:
 
 # ── MCP ──────────────────────────────────────────────────────────────────
 
-# Install the crw MCP server into Claude and Codex (asks first)  [--dry-run] [--yes]
+# Install the crw MCP server into Claude, Codex and Antigravity (asks first)  [--dry-run] [--yes]
 install *flags: build-mcp
     @scripts/install-mcp.sh install all {{ flags }}
 
@@ -95,7 +95,11 @@ install-claude *flags: build-mcp
 install-codex *flags: build-mcp
     @scripts/install-mcp.sh install codex {{ flags }}
 
-# Remove the crw MCP server from Claude and Codex (asks first)  [--dry-run] [--yes]
+# Install into the Antigravity app, IDE and agy (asks first)  [--dry-run] [--yes]
+install-antigravity *flags: build-mcp
+    @scripts/install-mcp.sh install antigravity {{ flags }}
+
+# Remove the crw MCP server from Claude, Codex and Antigravity (asks first)  [--dry-run] [--yes]
 uninstall *flags:
     @scripts/install-mcp.sh uninstall all {{ flags }}
 
@@ -106,6 +110,10 @@ uninstall-claude *flags:
 # Remove from Codex CLI + ChatGPT desktop (asks first)  [--dry-run] [--yes]
 uninstall-codex *flags:
     @scripts/install-mcp.sh uninstall codex {{ flags }}
+
+# Remove from the Antigravity app, IDE and agy (asks first)  [--dry-run] [--yes]
+uninstall-antigravity *flags:
+    @scripts/install-mcp.sh uninstall antigravity {{ flags }}
 
 # ── release ──────────────────────────────────────────────────────────────
 
@@ -131,3 +139,7 @@ test-stealth-claude:
 # Ask Codex to scrape through each tier via the crw MCP server
 test-stealth-codex:
     scripts/test-agent.sh codex
+
+# Ask agy to scrape through each tier via the crw MCP server (needs an allow rule, see README)
+test-stealth-antigravity:
+    scripts/test-agent.sh antigravity

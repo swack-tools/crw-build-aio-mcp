@@ -12,7 +12,7 @@ usage: crw-aio <command>
   status                 list the containers
   logs [service...]      follow logs (crw, camofox, chrome-stealth, searxng)
   test                   scrape through each stealth tier, plus a bot-check report
-  mcp install|uninstall [claude|codex|all] [--dry-run] [--yes]
+  mcp install|uninstall [claude|codex|antigravity|all] [--dry-run] [--yes]
                          register the crw MCP server (shows the changes, asks first)
   uninstall              remove the MCP entries, the stack and $ROOT
 
@@ -34,7 +34,7 @@ case "$cmd" in
     [[ "$action" == install || "$action" == uninstall ]] || { usage >&2; exit 1; }
     shift
     target=all
-    if [[ "${1:-}" =~ ^(claude|codex|all)$ ]]; then target="$1"; shift; fi
+    if [[ "${1:-}" =~ ^(claude|codex|antigravity|all)$ ]]; then target="$1"; shift; fi
     exec "$ROOT/scripts/install-mcp.sh" "$action" "$target" "$@"
     ;;
   uninstall)

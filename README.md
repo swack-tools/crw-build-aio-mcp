@@ -25,14 +25,18 @@ It pulls the prebuilt images from Docker Hub, starts the stack and registers the
 ```sh
 just up-stealth                     # first run clones + builds everything (Camoufox takes hours)
 just test-stealth                   # pin a scrape to each tier, then run bot checks with default settings
-just install                        # MCP server into Claude and Codex (shows the changes, asks first)
+just install                        # MCP server into Claude, Codex and Antigravity (shows the changes, asks first)
 just install-claude                 # only Claude Code + Claude Desktop
 just install-codex                  # only Codex CLI + ChatGPT desktop
+just install-antigravity            # only the Antigravity app, IDE and agy
 just test-stealth-claude            # the same check, driven by the claude CLI through MCP
 just test-stealth-codex             # ... and by codex exec
+just test-stealth-antigravity       # ... and by agy
 ```
 
 Every install/uninstall recipe prints the exact commands and config diffs, then asks `Apply these changes? [y/N]`. Add `--dry-run` to only print, or `--yes` to skip the question (needed without a terminal).
+
+Headless `agy -p`, which `just test-stealth-antigravity` uses, denies MCP tools without an allow rule. Add `mcp(crw/crw_scrape)` to `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`, or `mcp(crw/*)` for every crw tool. Installing doesn't add it, because it's your permission setting.
 
 Requirements: Docker with buildx (a containerd image store is needed for `build-all`), `just`, `git`, `python3` (3.11+), `curl`, `openssl`, `lsof`, `column`, `cargo` (for the native MCP binary), plus the `claude` and `codex` CLIs for those recipes. It is developed on Apple Silicon (arm64) with OrbStack.
 
@@ -82,9 +86,9 @@ A search goes through SearXNG to public search engines without a browser, so onl
 | `build-mcp` | native `bin/crw-mcp` (proxy-only build) |
 | `fetch` | clone any missing upstream into `src/` |
 | `update` | fast-forward every upstream, then `build` |
-| `install`, `install-claude`, `install-codex` `[--dry-run] [--yes]` | register the MCP server with both, Claude only, or Codex only |
-| `uninstall`, `uninstall-claude`, `uninstall-codex` `[--dry-run] [--yes]` | remove it again |
-| `test-stealth`, `test-stealth-claude`, `test-stealth-codex` | tests |
+| `install`, `install-claude`, `install-codex`, `install-antigravity` `[--dry-run] [--yes]` | register the MCP server with all three, Claude only, Codex only, or Antigravity only |
+| `uninstall`, `uninstall-claude`, `uninstall-codex`, `uninstall-antigravity` `[--dry-run] [--yes]` | remove it again |
+| `test-stealth`, `test-stealth-claude`, `test-stealth-codex`, `test-stealth-antigravity` | tests |
 | `bundle [prefix] [tag]` | the disk image's contents, from local images, into `build/bundle` |
 | `release <version>` | signed tag `v<version>` and a draft GitHub release; CI does the rest |
 
