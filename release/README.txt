@@ -2,7 +2,7 @@ crw-build-aio-mcp @VERSION@
 ===========================
 
 CRW (a Firecrawl-compatible scraper) with all three stealth tiers, plus its MCP
-server for Claude and Codex, on Apple Silicon Macs.
+server for Claude, Codex and Antigravity, on Apple Silicon Macs.
 
   impersonated-http   no browser; mimics Chrome's TLS/HTTP2 fingerprint
   chrome              Google Chrome on a virtual display, over plain CDP

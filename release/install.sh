@@ -3,7 +3,7 @@
 #   1. copy it to ~/Library/Application Support/crw-build-aio-mcp
 #   2. link the crw-aio command into ~/.local/bin
 #   3. pull the images from Docker Hub and start the stack
-#   4. register the crw MCP server with Claude and Codex (shows the changes, asks first)
+#   4. register the crw MCP server with Claude, Codex and Antigravity (shows the changes, asks first)
 # Re-running it upgrades an install in place and keeps its .env.
 # Usage: install.sh [--yes]   (--yes skips the MCP confirmation)
 set -euo pipefail

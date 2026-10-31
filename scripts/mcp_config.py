@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Add or remove the `crw` MCP server in a Claude Desktop or Codex config file.
+"""Add or remove the `crw` MCP server in a Claude Desktop, Antigravity or Codex config file.
 
-Usage: mcp_config.py <claude-desktop|codex> <install|uninstall> <in> <out> [bin url]
+Usage: mcp_config.py <claude-desktop|antigravity|codex> <install|uninstall> <in> <out> [bin url]
 
 Reads <in> (may not exist), writes the edited config to <out>, and leaves every
 other server untouched. The caller diffs, backs up and moves it into place.
@@ -17,7 +17,7 @@ except ImportError:  # python < 3.11 (macOS's stock 3.9); install-mcp.sh still c
     tomllib = None
 
 
-def claude_desktop(action, text, bin_path, url):
+def mcp_servers_json(action, text, bin_path, url):
     data = json.loads(text) if text.strip() else {}
     servers = data.setdefault("mcpServers", {})
     if action == "install":
@@ -65,7 +65,7 @@ def main():
     kind, action, src, out, *rest = sys.argv[1:]
     bin_path, url = (rest + ["", ""])[:2]
     text = open(src).read() if os.path.exists(src) else ""
-    edit = {"claude-desktop": claude_desktop, "codex": codex}[kind]
+    edit = {"claude-desktop": mcp_servers_json, "antigravity": mcp_servers_json, "codex": codex}[kind]
     with open(out, "w") as f:
         f.write(edit(action, text, bin_path, url))
 
