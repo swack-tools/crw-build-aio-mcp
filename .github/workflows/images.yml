@@ -108,6 +108,8 @@ jobs:
       - name: Compile Camoufox
         env:
           CAMOUFOX_CCACHE: ${{ runner.temp }}/ccache
+          # Compile even though the published zip could be fetched instead.
+          FORCE: ${{ inputs.force_camoufox && '1' || '' }}
           # Two arches share the repo's 10 GB of cache.
           CCACHE_MAXSIZE: 4G
         run: |
