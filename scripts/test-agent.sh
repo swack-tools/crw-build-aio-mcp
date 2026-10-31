@@ -37,8 +37,8 @@ case "$agent" in
   antigravity)
     agy mcp list 2>/dev/null | grep -q '^crw[[:space:]]' || die "crw is not installed in Antigravity — run: just install-antigravity"
     log "asking agy (this takes a minute)"
-    # Headless agy denies MCP tools without an allow rule; its error, printed below, says so.
-    agy -p "$prompt" --print-timeout 300s </dev/null > "$out" 2>&1
+    # Headless agy denies MCP tools without an allow rule, and needs a sign-in; its error, printed below, says so.
+    agy -p "$prompt" --print-timeout 300s </dev/null > "$out" 2>&1 || true
     ;;
   *) die "unknown agent: $agent (claude | codex | antigravity)" ;;
 esac
