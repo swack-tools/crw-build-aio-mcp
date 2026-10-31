@@ -100,7 +100,7 @@ A search goes through SearXNG to public search engines without a browser, so onl
 - **Camoufox:** `scripts/build-camoufox.sh` runs upstream's own builder image (`browser/Dockerfile`) and writes `dist/camoufox-<ver>-lin.<arch>.zip`.
   - The builder runs as linux/amd64 and cross-compiles to arm64 or x86_64, which is the path upstream tests.
   - Its base image is pinned to `ubuntu:24.04` because `26.04`'s tar fails under Rosetta.
-  - Toolchains are kept in a named Docker volume per Firefox version, and ccache in one that outlives versions, so rebuilds are incremental.
+  - Toolchains are kept in a named Docker volume per Firefox version, and ccache in one that outlives versions, so rebuilds are incremental. `CAMOUFOX_CCACHE=<dir>` keeps ccache in a directory instead, which is how CI carries it between runs in the GitHub cache. A compile ends by printing its ccache hit rate.
   - A cold build takes hours under emulation. To skip it, set `CAMOUFOX_DIST_REGISTRY=docker.io/<user>/` (or `REGISTRY`) in `.env`. The script then fetches the zip CI built from the same inputs, in about a minute, and compiles only when there is none. This repo's CI publishes to `docker.io/swackhamer/`. `CAMOUFOX_PULL=0` or `FORCE=1` always compiles.
 - **Images:** `docker-bake.hcl` builds the images.
   - Upstream Dockerfiles that build `FROM` a registry image (`searxng/base:*`) get bake targets built here instead, wired in through `contexts`.
