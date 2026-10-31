@@ -10,7 +10,8 @@
 #   camoufox_key=<key>                         (tag prefix of the camoufox-dist image)
 # With REGISTRY set, it also checks what already exists there:
 #   build=["crw", ...]                         (images with no src-<key> tag yet)
-#   camoufox_arches=["arm64", ...]             (Camoufox zips to compile for them)
+#   camoufox_arches=["arm64", ...]             (Camoufox zips to compile for them;
+#                                               all of them with FORCE_CAMOUFOX=1)
 # Usage: ci-plan.sh   (after fetch-sources.sh)
 source "$(dirname "$0")/lib.sh"
 
@@ -73,8 +74,10 @@ if registry:
         return subprocess.run(["docker", "buildx", "imagetools", "inspect", ref],
                               capture_output=True).returncode == 0
     build = [i for i, k in keys.items() if not exists(f"{registry}{project}-{i}:src-{k}")]
+    # FORCE_CAMOUFOX=1 compiles both arches anyway, e.g. to time a warm ccache.
+    force = os.environ.get("FORCE_CAMOUFOX") == "1"
     arches = [a for a in ("arm64", "x86_64")
-              if "camofox" in build and not exists(f"{registry}{project}-camoufox-dist:{camoufox_key}-{a}")]
+              if force or ("camofox" in build and not exists(f"{registry}{project}-camoufox-dist:{camoufox_key}-{a}"))]
     print(f"build={json.dumps(build)}")
     print(f"camoufox_arches={json.dumps(arches)}")
 PY

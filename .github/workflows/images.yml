@@ -17,6 +17,10 @@ on:
         description: Extra tags for every image, comma-separated; {date} becomes YYYYMMDD
         type: string
         required: true
+      force_camoufox:
+        description: Compile Camoufox even when its zip already exists (to time the ccache)
+        type: boolean
+        default: false
     outputs:
       refs:
         description: The upstream commits built, as NAME_REF=<sha> pairs
@@ -30,6 +34,10 @@ on:
         description: Extra tags for every image, comma-separated; {date} becomes YYYYMMDD
         type: string
         default: edge
+      force_camoufox:
+        description: Compile Camoufox even when its zip already exists (to time the ccache)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -58,6 +66,8 @@ jobs:
         run: scripts/fetch-sources.sh
       - name: Pin commits and find what needs building
         id: plan
+        env:
+          FORCE_CAMOUFOX: ${{ inputs.force_camoufox && '1' || '' }}
         run: scripts/ci-plan.sh | tee -a "$GITHUB_OUTPUT"
 
   camoufox:
@@ -98,6 +108,8 @@ jobs:
       - name: Compile Camoufox
         env:
           CAMOUFOX_CCACHE: ${{ runner.temp }}/ccache
+          # Compile even though the published zip could be fetched instead.
+          FORCE: ${{ inputs.force_camoufox && '1' || '' }}
           # Two arches share the repo's 10 GB of cache.
           CCACHE_MAXSIZE: 4G
         run: |
@@ -114,10 +126,16 @@ jobs:
           key: camoufox-ccache-${{ matrix.arch }}-${{ needs.plan.outputs.camoufox_key }}
       - name: Push the zip as a camoufox-dist image
         run: |
+          # A forced compile leaves a zip already published for this key alone.
+          ref="${REGISTRY}crw-config-camoufox-dist:$CAMOUFOX_KEY-$ARCH"
+          if docker buildx imagetools inspect "$ref" >/dev/null 2>&1; then
+            echo "$ref already exists; not replacing it"
+            exit 0
+          fi
           platform="linux/$([[ "$ARCH" == arm64 ]] && echo arm64 || echo amd64)"
           printf 'FROM scratch\nCOPY camoufox-*-lin.%s.zip /\n' "$ARCH" |
             docker buildx build --platform "$platform" --push \
-              -t "${REGISTRY}crw-config-camoufox-dist:$CAMOUFOX_KEY-$ARCH" -f - dist
+              -t "$ref" -f - dist
 
   build:
     needs: [plan, camoufox]

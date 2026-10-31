@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: '17 6 * * *'
   workflow_dispatch:
+    inputs:
+      force_camoufox:
+        description: Compile Camoufox even when its zip already exists (to time the ccache)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,4 +26,5 @@ jobs:
     uses: ./.github/workflows/images.yml
     with:
       tags: nightly,nightly-{date}
+      force_camoufox: ${{ inputs.force_camoufox == true }}
     secrets: inherit
