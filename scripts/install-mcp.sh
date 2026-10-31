@@ -140,7 +140,8 @@ target_codex() {
 }
 
 antigravity_present() {
-  command -v agy >/dev/null || [[ -x "$HOME/.local/bin/agy" || -d "$HOME/.gemini" ]] ||
+  command -v agy >/dev/null || [[ -x "$HOME/.local/bin/agy" || -d "$HOME/.gemini" ]] && return 0
+  [[ "$(uname -s)" == Darwin ]] &&
     [[ -d /Applications/Antigravity.app || -d "/Applications/Antigravity IDE.app" ]]
 }
 
