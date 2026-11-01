@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the Camoufox browser for Linux from src/camoufox → dist/camoufox-*-lin.<arch>.zip
+# Build the Camoufox browser for Linux from ~/.crw/src/camoufox → ~/.crw/dist/camoufox-*-lin.<arch>.zip
 # Usage: build-camoufox.sh [arm64|x86_64]   (default: host arch)
 #
 # With REGISTRY set (or CAMOUFOX_DIST_REGISTRY, e.g. docker.io/you/), it first
@@ -123,6 +123,6 @@ ccache_cmd --show-stats || true
 [[ "$code" == 0 ]] || die "camoufox compile failed (exit ${code:-unknown}); see the log above"
 
 zip="$(zip_for_arch)"
-[[ -n "$zip" ]] || die "build finished but no dist/camoufox-*-lin.$arch.zip was produced"
+[[ -n "$zip" ]] || die "build finished but no $DIST/camoufox-*-lin.$arch.zip was produced"
 echo "$key" > "$stamp"
 log "built $(basename "$zip")"

@@ -1,5 +1,5 @@
-# crw-config — CRW with all three stealth tiers (stealth Chrome via --profile stealth,
-# impersonated-http, Camoufox), every app image built from upstream source.
+# crw-config — CRW with all three stealth tiers (Google Chrome, impersonated-http,
+# Camoufox), every app image built from upstream source.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 

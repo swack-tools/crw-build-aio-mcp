@@ -28,19 +28,20 @@ In Terminal:
 
 It copies everything to ~/Library/Application Support/crw-build-aio-mcp, starts
 the stack on http://127.0.0.1:3000 (or the next free port, after asking), and
-registers the crw MCP server with Claude Code, Claude Desktop, the Codex CLI and
-ChatGPT desktop. It shows each config change and asks before applying it.
+registers the crw MCP server with Claude Code, Claude Desktop, the Codex CLI,
+ChatGPT desktop and Antigravity, if it is installed. It shows each config change
+and asks before applying it.
 Restart Claude Desktop and ChatGPT desktop afterwards.
 
 Run it again from a newer disk image to upgrade.
 
 Use
 ---
-Ask Claude or Codex to scrape a page; there is no need to pick a renderer.
-crw renders it in Chrome and, if Chrome is blocked, in Camoufox.
+Ask Claude, Codex or Antigravity to scrape a page; there is no need to pick a
+renderer. crw renders it in Chrome and, if Chrome is blocked, in Camoufox.
 
   crw-aio status | logs | test | down | up | update
-  crw-aio mcp install claude      only Claude (or: codex)
+  crw-aio mcp install claude      only Claude (or: codex, antigravity)
   crw-aio uninstall
 
 Licenses
