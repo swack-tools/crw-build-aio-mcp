@@ -41,7 +41,7 @@ build-all: fetch
 push: build-all
     scripts/build-images.sh all --push
 
-# Compile just the Camoufox browser zip into dist/ (FORCE=1 to rebuild)
+# Compile just the Camoufox browser zip into ~/.crw/dist (FORCE=1 to rebuild)
 build-camoufox arch=host_arch:
     scripts/build-camoufox.sh {{ arch }}
 

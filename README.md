@@ -82,7 +82,7 @@ A search goes through SearXNG to public search engines without a browser, so onl
 | `build-arm64`, `build-x86` | every image for one arch |
 | `build-all` | both arches as multi-arch images |
 | `push` | `build-all`, then push to `$REGISTRY` |
-| `build-camoufox [arch]` | only the Camoufox zip in `dist/` |
+| `build-camoufox [arch]` | only the Camoufox zip in `~/.crw/dist` |
 | `build-mcp` | native `bin/crw-mcp` (proxy-only build) |
 | `fetch` | clone any missing upstream into `~/.crw/src` |
 | `update` | fast-forward every upstream, then `build` |
@@ -94,11 +94,11 @@ A search goes through SearXNG to public search engines without a browser, so onl
 
 ## How it fits together
 
-- **Sources:** `scripts/fetch-sources.sh` clones each upstream's default branch into `~/.crw/src`, outside this folder, because the clones and crw's build output come to thousands of files and a Claude project takes a folder of under 1,000.
-  - `CRW_SRC=/path` in `.env` keeps them somewhere else. A checkout from before this move can run `mkdir -p ~/.crw && mv src ~/.crw/src` instead of cloning again.
+- **Sources:** `scripts/fetch-sources.sh` clones each upstream's default branch into `~/.crw/src`, outside this folder, because the clones and crw's build output come to thousands of files and a Claude project takes a folder of under 1,000. The Camoufox zip, over a gigabyte, is in `~/.crw/dist` too.
+  - `CRW_HOME=/path` in `.env` keeps them somewhere else. A checkout from before this move can run `mkdir -p ~/.crw && mv src dist .stamps ~/.crw/` instead of cloning and building again.
   - `<NAME>_REF` checks out something else, e.g. `CAMOUFOX_REF=v152.0.4-beta.28`.
   - `SRC_<NAME>=/path` uses an existing checkout instead of cloning.
-- **Camoufox:** `scripts/build-camoufox.sh` runs upstream's own builder image (`browser/Dockerfile`) and writes `dist/camoufox-<ver>-lin.<arch>.zip`.
+- **Camoufox:** `scripts/build-camoufox.sh` runs upstream's own builder image (`browser/Dockerfile`) and writes `~/.crw/dist/camoufox-<ver>-lin.<arch>.zip`.
   - The builder runs as linux/amd64 and cross-compiles to arm64 or x86_64, which is the path upstream tests.
   - Its base image is pinned to `ubuntu:24.04` because `26.04`'s tar fails under Rosetta.
   - Toolchains are kept in a named Docker volume per Firefox version, and ccache in one that outlives versions, so rebuilds are incremental. `CAMOUFOX_CCACHE=<dir>` keeps ccache in a directory instead, which is how CI carries it between runs in the GitHub cache. A compile ends by printing its ccache hit rate.

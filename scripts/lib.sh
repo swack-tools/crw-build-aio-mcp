@@ -3,10 +3,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DIST="$ROOT/dist"
 BIN="$ROOT/bin"
 BUILD="$ROOT/build"
-STAMPS="$ROOT/.stamps"
 
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*" >&2; }
 warn() { printf '\033[1;33mwarn:\033[0m %s\n' "$*" >&2; }
@@ -24,9 +22,13 @@ load_env() {
 }
 load_env
 
-# The upstream clones are thousands of files, so they live outside this folder,
-# which then stays small enough to attach to a Claude project.
-SRC="${CRW_SRC:-$HOME/.crw/src}"
+# The upstream clones are thousands of files and a Camoufox zip is over a gigabyte,
+# so they live outside this folder, which then stays small enough to attach to a
+# Claude project. A stamp says which sources built a zip, so it stays with the zip.
+CRW_HOME="${CRW_HOME:-$HOME/.crw}"
+SRC="$CRW_HOME/src"
+DIST="$CRW_HOME/dist"
+STAMPS="$CRW_HOME/.stamps"
 
 # A checkout's stack is crw-config, a release install's (no Justfile) crw-aio.
 # The install's .env says so too, but its first start runs before that exists.

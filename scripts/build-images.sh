@@ -3,7 +3,7 @@
 # Usage: build-images.sh <arm64|amd64|all> [--push | --push-by-digest <metadata.json>] [target...]
 #   --push            push tagged images to $REGISTRY
 #   --push-by-digest  push untagged and record each digest (CI: one runner per arch)
-# Camoufox zips for each requested arch must already be in dist/ (build-camoufox.sh),
+# Camoufox zips for each requested arch must already be in ~/.crw/dist (build-camoufox.sh),
 # unless CAMOUFOX_DIST names an image that holds them.
 source "$(dirname "$0")/lib.sh"
 
@@ -37,12 +37,12 @@ PLATFORMS="$(IFS=,; echo "${platforms[*]}")"
 if [[ -z "${CAMOUFOX_DIST:-}" ]] && { ((${#targets[@]} == 0)) || [[ " ${targets[*]} " =~ " camofox " ]]; }; then
   for arch in "${arches[@]}"; do
     compgen -G "$DIST/camoufox-*-lin.$(camoufox_arch "$arch").zip" >/dev/null ||
-      die "no Camoufox build for $arch in dist/ — run: scripts/build-camoufox.sh $arch"
+      die "no Camoufox build for $arch in $DIST — run: scripts/build-camoufox.sh $arch"
   done
 fi
 
-# The clones are outside this folder, and bake won't read there unless told to.
-allow=()
+# The clones and zips are outside this folder, and bake won't read there unless told to.
+allow=("--allow=fs.read=$DIST")
 for entry in "${SOURCES[@]}"; do
   name="${entry%%|*}"
   var="$(env_name "$name")"

@@ -26,11 +26,11 @@ for entry in "${SOURCES[@]}"; do
   apply_patches "${entry%%|*}"
 done
 
-log "camofox-browser: use dist/camoufox-*-lin.<arch>.zip"
+log "camofox-browser: use $DIST/camoufox-*-lin.<arch>.zip"
 patch_line "$(src_dir camofox-browser)/Dockerfile" "$BUILD/camofox-browser.Dockerfile.tmp" \
   'curl -fL -o /tmp/camoufox.zip' \
   '    && cp /camoufox-dist/camoufox-*-lin.${CAMOUFOX_ARCH}.zip /tmp/camoufox.zip \'
-# The RUN that owns that line needs the dist/ zips mounted.
+# The RUN that owns that line needs the zips mounted.
 patch_line "$BUILD/camofox-browser.Dockerfile.tmp" "$BUILD/camofox-browser.Dockerfile" \
   'RUN case "${TARGETARCH}" in' \
   'RUN --mount=type=bind,from=camoufox,target=/camoufox-dist case "${TARGETARCH}" in \'
