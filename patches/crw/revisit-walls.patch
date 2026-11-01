@@ -1,7 +1,7 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
-@@ -97,6 +97,11 @@
+@@ -97,6 +97,11 @@ const ALMOST_IDLE_MAX_INFLIGHT: i64 = 2;
  const SETTLE_MIN_MS: u64 = 1000;
  const SETTLE_QUIET_MS: i64 = 1000;
  const SETTLE_MAX_MS: u64 = 4000;
@@ -13,17 +13,19 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// How long a JavaScript dialog stays open before crw accepts it.
  const DIALOG_ANSWER_DELAY: Duration = Duration::from_millis(700);
  /// Max iterations for the auto-scroll lazy-load pass. 12 viewports usually
-@@ -2211,6 +2216,19 @@
+@@ -2211,6 +2216,21 @@ fn is_challenge_page(html: &str) -> bool {
          || lower.contains("attention required")
  }
  
 +/// Did the page turn this visit away with a wall a reload may clear? A
-+/// generic or vendor block page, but not a challenge still solving itself.
-+fn is_revisitable_wall(html: &str) -> bool {
++/// generic or vendor block page, or one only its status marks as a block, but
++/// not a challenge still solving itself. A 429 asks for fewer requests, so it
++/// doesn't count on its status alone.
++fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
 +    if is_challenge_page(html) {
 +        return false;
 +    }
-+    let named = crw_extract::antibot::classify(None, html);
++    let named = crw_extract::antibot::classify(status.filter(|s| *s != 429), html);
 +    crate::detector::looks_like_generic_bot_wall(html, false)
 +        || crate::detector::looks_like_vendor_block(html).is_some()
 +        || (named.signal.is_blocked()
@@ -33,7 +35,32 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// Is `document.contentType` one a page is read from? Markup, text and data
  /// are; a PDF, an image or a video is not.
  fn is_page_content_type(content_type: &str) -> bool {
-@@ -3833,7 +3851,6 @@
+@@ -3549,21 +3569,9 @@ impl CdpRenderer {
+             let status_code = if (status_code >= 400 || status_code == 202)
+                 && !is_challenge_page(&html)
+             {
+-                conn.send_recv(
+-                    "Runtime.evaluate",
+-                    serde_json::json!({
+-                        "expression": "performance.getEntriesByType('navigation')[0]?.responseStatus || 0",
+-                        "returnByValue": true,
+-                    }),
+-                    Some(&session_id),
+-                    Duration::from_secs(2),
+-                )
+-                .await
+-                .ok()
+-                .and_then(|v| v.pointer("/result/value").and_then(|s| s.as_u64()))
+-                .and_then(|s| u16::try_from(s).ok())
+-                .filter(|s| *s != 0)
+-                .unwrap_or(status_code)
++                Self::document_status(conn, &session_id)
++                    .await
++                    .unwrap_or(status_code)
+             } else {
+                 status_code
+             };
+@@ -3833,7 +3841,6 @@ impl CdpRenderer {
          // prod RUST_LOG=info; enable with RUST_LOG=render_phases=debug for bench).
          let _pt0 = Instant::now();
          let mut t_stability_ms: u64 = 0;
@@ -41,7 +68,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          // 2.5. Best-effort consent / CMP dismissal. Cookie banners can both
          // hide content behind an overlay and inflate `body.innerText` past
          // the SPA-readiness threshold prematurely (the banner copy alone
-@@ -3958,23 +3975,23 @@
+@@ -3958,23 +3965,27 @@ impl CdpRenderer {
          // Bounded by `self.challenge_max_retries` (config); 0 disables it so
          // anti-bot recovery falls to the stealth/auto-egress tier instead of
          // burning the deadline here (the Firecrawl/Spider approach).
@@ -61,31 +88,50 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 -                tracing::debug!(url = %LogUrl(&url), attempt, "Challenge still active, retrying");
 -            }
 -            t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
--        }
 +        let _chal_t = Instant::now();
 +        html = self.wait_out_challenge(conn, session_id, url, html).await?;
 +
 +        // 6. Some anti-bot systems turn a first visit away and set a cookie as
 +        // they do, so a person's refresh gets through: Reddit's captcha wall
 +        // gives way to its automatic check on the next load, and Akamai's
-+        // sensor cookie is only good once a page has run it. Reload once, the
-+        // way a person would, before this tier reports the wall. Not a
-+        // challenge still solving (the loop above waited that out), and not
-+        // when the caller set the timing.
-+        if wait_for_ms.is_none() && self.name == "chrome" && is_revisitable_wall(&html) {
++        // sensor cookie is only good once a page has run it. eBay answers a
++        // fresh profile's first visit with a 403 reading "Something went wrong"
++        // and the listing on the next. Reload once, the way a person would,
++        // before this tier reports the wall. Not a challenge still solving (the
++        // loop above waited that out), and not when the caller set the timing.
++        if wait_for_ms.is_none()
++            && self.name == "chrome"
++            && is_revisitable_wall(Self::document_status(conn, session_id).await, &html)
++        {
 +            tracing::info!(url = %LogUrl(&url), "Anti-bot wall on this visit; reloading once");
 +            tokio::time::sleep(RELOAD_PAUSE).await;
 +            html = self.reload_and_read(conn, session_id, net).await?;
 +            html = self.wait_out_challenge(conn, session_id, url, html).await?;
-+        }
+         }
 +        let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
  
          // latency-qn render-phase breakdown (debug target; off in prod).
          let total_ms = _pt0.elapsed().as_millis() as u64;
-@@ -3991,6 +4008,88 @@
-         );
- 
+@@ -3993,6 +4004,106 @@ impl CdpRenderer {
          Ok(html)
+     }
+ 
++    /// The HTTP status of the document now in the page, if it can be read.
++    async fn document_status(conn: &CdpConnection, session_id: &str) -> Option<u16> {
++        conn.send_recv(
++            "Runtime.evaluate",
++            serde_json::json!({
++                "expression": "performance.getEntriesByType('navigation')[0]?.responseStatus || 0",
++                "returnByValue": true,
++            }),
++            Some(session_id),
++            Duration::from_secs(2),
++        )
++        .await
++        .ok()
++        .and_then(|v| v.pointer("/result/value").and_then(|s| s.as_u64()))
++        .and_then(|s| u16::try_from(s).ok())
++        .filter(|s| *s != 0)
 +    }
 +
 +    /// Poll a challenge page until it clears or the retries run out; any other
@@ -168,10 +214,12 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +            tokio::time::sleep(Duration::from_millis(SPA_SELECTOR_TICK_MS)).await;
 +        }
 +        Self::eval_html(conn, session_id, self.page_timeout).await
-     }
- 
++    }
++
      /// Measure the content box (Page.getLayoutMetrics) and decide whether a
-@@ -4966,7 +5065,7 @@
+     /// full-page capture must be clipped. `None` => page fits, take the plain
+     /// full-page shot. `Some((w,h))` => clip to these CSS-px dims. On measure
+@@ -4966,7 +5077,7 @@ mod tests {
  
      // --- is_challenge_page ------------------------------------------------------
  
@@ -180,27 +228,38 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  
      #[test]
      fn challenge_page_detects_cloudflare_just_a_moment() {
-@@ -5009,6 +5108,23 @@
+@@ -5012,6 +5123,34 @@ mod tests {
          ));
-         assert!(is_challenge_page(
-             "<script>window.KPSDK={};KPSDK.now=Date.now;KPSDK.scriptStart=KPSDK.now();</script>"
-+        ));
-+    }
-+
+     }
+ 
 +    #[test]
 +    fn revisitable_walls() {
 +        assert!(is_revisitable_wall(
++            Some(200),
 +            "<html><head><title>Reddit - Prove your humanity</title></head><body><h1>Prove your humanity</h1></body></html>"
 +        ));
 +        assert!(is_revisitable_wall(
++            None,
 +            "<html><head><title>Error Page</title></head><body><main><div>Oops!! Something went wrong. Please refresh page</div></main></body></html>"
 +        ));
 +        // A challenge solves itself; the loop waits for it instead.
 +        assert!(!is_revisitable_wall(
++            Some(403),
 +            "<html><head><title>Just a moment...</title></head></html>"
 +        ));
 +        assert!(!is_revisitable_wall(
++            Some(200),
 +            "<html><head><title>Example</title></head><body><article><p>A page that loaded.</p></article></body></html>"
-         ));
-     }
- 
++        ));
++        // eBay's first answer to a fresh profile: only the status says block.
++        let ebay = "<html><head><title>Error Page | eBay</title></head><body><main><h1>SORRY</h1><p>Something went wrong on our end</p><p>0.2a3b2f17.1793488708.1f6693c8</p><p>Please go back and try again.</p></main></body></html>";
++        assert!(is_revisitable_wall(Some(403), ebay));
++        assert!(!is_revisitable_wall(Some(200), ebay));
++        assert!(!is_revisitable_wall(Some(404), ebay));
++        // Rate limited: another request right away won't help.
++        assert!(!is_revisitable_wall(Some(429), ebay));
++    }
++
+     #[test]
+     fn page_content_types() {
+         for ct in [
