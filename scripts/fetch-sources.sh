@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
 # Clone each missing upstream into ~/.crw/src/<name>. With --update, also fast-forward
-# existing clones (and re-apply <NAME>_REF).
-# Usage: fetch-sources.sh [--update] [name...]   (default: all)
+# existing clones (and re-apply <NAME>_REF). --quiet skips the summary table;
+# errors and warnings still print.
+# Usage: fetch-sources.sh [--update] [--quiet] [name...]   (default: all)
 source "$(dirname "$0")/lib.sh"
 
-update=
-if [[ "${1:-}" == "--update" ]]; then update=1; shift; fi
+update= quiet=
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --update) update=1 ;;
+    --quiet) quiet=1 ;;
+    *) die "unknown option $1" ;;
+  esac
+  shift
+done
 mkdir -p "$SRC"
 wanted=("$@")
 summary=()
@@ -53,4 +61,4 @@ for entry in "${SOURCES[@]}"; do
   summary+=("$name|$old -> $new|${ref:-default branch}")
 done
 
-printf '%s\n' "${summary[@]}" | column -t -s'|' >&2
+[[ -n "$quiet" ]] || printf '%s\n' "${summary[@]}" | column -t -s'|' >&2
