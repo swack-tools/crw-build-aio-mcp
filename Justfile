@@ -132,6 +132,10 @@ release version:
 test-stealth:
     scripts/test-stealth.sh
 
+# Apply patches/crw and run the offline unit tests they add (needs cargo)
+test-patches:
+    scripts/test-patches.sh
+
 # Ask Claude Code to scrape through each tier via the crw MCP server
 test-stealth-claude:
     scripts/test-agent.sh claude
