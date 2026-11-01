@@ -1,5 +1,5 @@
 diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
-index 1826152..9ddb315 100644
+index 1826152..4189d89 100644
 --- a/crates/crw-renderer/src/lib.rs
 +++ b/crates/crw-renderer/src/lib.rs
 @@ -567,11 +567,7 @@ fn demote_wall_to_ladder_failure(
@@ -100,7 +100,7 @@ index 1826152..9ddb315 100644
      /// Warm per-proxy fetcher cache shared by the two HTTP-shaped tiers: reuse
      /// a client previously bound to the same `REQUEST_PROXY` entry, else build
      /// one via `build` (fail-closed) and remember it. The build runs OUTSIDE
-@@ -2402,7 +2462,39 @@ impl FallbackRenderer {
+@@ -2402,7 +2462,46 @@ impl FallbackRenderer {
                  Ok(r)
              }
              Some(true) => {
@@ -133,6 +133,13 @@ index 1826152..9ddb315 100644
 +                        Ok(r) if r.block.is_none() => return js,
 +                        // No HTTP substitute for these; see the fallback below.
 +                        _ if screenshot_requested() || is_hard_pinned => return js,
++                        // Akamai's wall, after both browsers: an HTTP client
++                        // has no sensor cookie to clear it, and Akamai holds a
++                        // non-browser request against the IP (see above). The
++                        // verdict stands without one.
++                        Ok(r) if r.block.as_ref().is_some_and(|b| b.vendor == "akamai") => {
++                            return js;
++                        }
 +                        _ => {}
 +                    }
 +                    ladder = Some((js, started_at));
@@ -141,7 +148,7 @@ index 1826152..9ddb315 100644
                  // An HTTP-layer failure is not terminal here either: the auto arm
                  // escalates on it (bench: 10/147 false "unreachable" + 5/147
                  // "http_502" recover via a real Chromium navigation), and a
-@@ -2412,7 +2504,7 @@ impl FallbackRenderer {
+@@ -2412,7 +2511,7 @@ impl FallbackRenderer {
                  // arm — never reached the browser on an origin that rejects
                  // reqwest's TLS fingerprint.
                  let mut http_result = match self
@@ -150,7 +157,7 @@ index 1826152..9ddb315 100644
                      .fetch(url, headers, None, deadline)
                      .await
                  {
-@@ -2430,34 +2522,38 @@ impl FallbackRenderer {
+@@ -2430,34 +2529,38 @@ impl FallbackRenderer {
                              error = %LogErr(&e),
                              "HTTP fetch failed, escalating to JS renderer",
                          );
@@ -216,7 +223,7 @@ index 1826152..9ddb315 100644
                      }
                      Err(e) => return Err(e),
                  };
-@@ -2508,17 +2604,23 @@ impl FallbackRenderer {
+@@ -2508,17 +2611,23 @@ impl FallbackRenderer {
                      // debug and because the request is billed either way.
                      let is_auth_blocked =
                          soft_block_warrants_js(http_result.status_code, &http_result.html);
@@ -251,7 +258,7 @@ index 1826152..9ddb315 100644
                      // A ladder result that is nothing but a wall must not
                      // displace a usable HTTP body. This is the preference the
                      // old error carried implicitly; see the helper.
-@@ -2549,10 +2651,7 @@ impl FallbackRenderer {
+@@ -2549,10 +2658,7 @@ impl FallbackRenderer {
                          Err(e)
                              if screenshot_requested()
                                  || is_hard_pinned
@@ -263,7 +270,7 @@ index 1826152..9ddb315 100644
                          {
                              Err(e)
                          }
-@@ -4030,6 +4129,14 @@ impl FallbackRenderer {
+@@ -4030,6 +4136,14 @@ impl FallbackRenderer {
                          }
                      });
                  }
@@ -278,7 +285,7 @@ index 1826152..9ddb315 100644
                  Err(e) => {
                      // A replayed hedge leg was already logged as `hedge leg failed`.
                      if !was_replayed {
-@@ -4779,6 +4886,12 @@ impl FallbackRenderer {
+@@ -4779,6 +4893,12 @@ impl FallbackRenderer {
              // tier failed outright, now get the verdict instead of a 502.
              if detector::looks_like_generic_bot_wall(&result.html, result.truncated) {
                  result.block = Some(unclearable_wall_verdict());
@@ -291,7 +298,7 @@ index 1826152..9ddb315 100644
              }
              Ok(result)
          } else {
-@@ -6145,6 +6258,140 @@ mod tests {
+@@ -6145,6 +6265,187 @@ mod tests {
          );
      }
  
@@ -371,24 +378,35 @@ index 1826152..9ddb315 100644
 +    }
 +
 +    /// A vendor's wall every browser hit is the verdict, not a page: the
-+    /// forced-JS arm then tries HTTP, and a real HTTP body still wins.
++    /// forced-JS arm then tries HTTP, and a real HTTP body still wins. Except
++    /// Akamai's: that verdict stands with no HTTP request at all.
 +    #[tokio::test]
 +    async fn forced_js_vendor_wall_falls_back_or_is_the_verdict() {
-+        let wall = "<html><body><h1>adidas</h1>\
-+                    <p>Reference Error: 0.333b2f17.1793287426.7e59a54</p></body></html>";
++        let akamai = "<html><body><h1>adidas</h1>\
++                      <p>Reference Error: 0.333b2f17.1793287426.7e59a54</p></body></html>";
++        let perimeterx = "<html><head><title>Access to this page has been denied</title>\
++                          </head><body><div id=\"px-captcha\"></div></body></html>";
 +        let article = format!(
 +            "<html><body><article><h1>Real page</h1><p>{}</p></article></body></html>",
 +            "Genuine prose that no detector could mistake for an interstitial. ".repeat(20)
 +        );
-+        for (http_body, want_page) in [(wall.to_string(), false), (article, true)] {
++        // (browser's wall, HTTP body, vendor of the verdict or None for the
++        // page, HTTP requests made)
++        let cases = [
++            (perimeterx, perimeterx.to_string(), Some("perimeterx"), 1),
++            (perimeterx, article.clone(), None, 1),
++            (akamai, article, Some("akamai"), 0),
++        ];
++        for (wall, http_body, want_vendor, want_http) in cases {
 +            let chrome = Arc::new(MockFetcher {
 +                name: "chrome",
 +                behavior: MockBehavior::Ok(wall.to_string()),
 +            }) as Arc<dyn PageFetcher>;
 +            let mut r = make_renderer_with_mocks(vec![chrome]);
-+            r.http = Arc::new(MockFetcher {
-+                name: "http",
-+                behavior: MockBehavior::Ok(http_body),
++            let http = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++            r.http = Arc::new(CountingBody {
++                calls: http.clone(),
++                body: http_body,
 +            });
 +            let out = r
 +                .fetch(
@@ -401,12 +419,48 @@ index 1826152..9ddb315 100644
 +                )
 +                .await
 +                .expect("a body either way");
-+            if want_page {
-+                assert!(out.html.contains("Real page"));
-+                assert!(out.block.is_none(), "{:?}", out.block);
-+            } else {
-+                assert_eq!(out.block.map(|b| b.vendor).as_deref(), Some("akamai"));
++            assert_eq!(
++                http.load(std::sync::atomic::Ordering::SeqCst),
++                want_http,
++                "{want_vendor:?}"
++            );
++            match want_vendor {
++                None => {
++                    assert!(out.html.contains("Real page"));
++                    assert!(out.block.is_none(), "{:?}", out.block);
++                }
++                Some(v) => assert_eq!(out.block.map(|b| b.vendor).as_deref(), Some(v)),
 +            }
++        }
++    }
++
++    /// An HTTP tier that answers every URL with `body` and counts its calls.
++    struct CountingBody {
++        calls: Arc<std::sync::atomic::AtomicUsize>,
++        body: String,
++    }
++    #[async_trait::async_trait]
++    impl PageFetcher for CountingBody {
++        async fn fetch(
++            &self,
++            url: &str,
++            _h: &HashMap<String, String>,
++            _w: Option<u64>,
++            _d: crw_core::Deadline,
++        ) -> CrwResult<FetchResult> {
++            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++            let mut res = fr(200, &self.body);
++            res.url = url.to_string();
++            Ok(res)
++        }
++        fn name(&self) -> &str {
++            "http"
++        }
++        fn supports_js(&self) -> bool {
++            false
++        }
++        async fn is_available(&self) -> bool {
++            true
 +        }
 +    }
 +
@@ -432,7 +486,7 @@ index 1826152..9ddb315 100644
      /// An HTTP tier whose origin refused a body over the size cap.
      struct OversizeBody;
      #[async_trait::async_trait]
-@@ -6173,10 +6420,11 @@ mod tests {
+@@ -6173,10 +6474,11 @@ mod tests {
  
      /// Same rule as the binary body, for the size cap: the prod shape is a
      /// 52 to 78 MB PDF, which chrome aborts as a download (`net::ERR_ABORTED`)
@@ -447,9 +501,10 @@ index 1826152..9ddb315 100644
              let js = Arc::new(CountingFetcher {
                  name: "chrome",
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
+index 6f9701a..e2d2bef 100644
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
-@@ -2211,6 +2211,13 @@
+@@ -2211,6 +2211,13 @@ fn is_challenge_page(html: &str) -> bool {
          || lower.contains("attention required")
  }
  
@@ -463,7 +518,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// Detect LightPanda/Chrome navigation error pages.
  fn detect_navigation_error(html: &str) -> Option<String> {
      if html.len() > 2000 {
-@@ -3473,6 +3480,14 @@
+@@ -3473,6 +3480,14 @@ impl CdpRenderer {
                  .get("errorText")
                  .and_then(|value| value.as_str())
              {
@@ -478,7 +533,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
                  return Err(CrwError::RendererError(format!(
                      "Navigation failed: {error_text}"
                  )));
-@@ -3552,6 +3567,23 @@
+@@ -3552,6 +3567,23 @@ impl CdpRenderer {
              } else {
                  status_code
              };
@@ -502,7 +557,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
              // Screenshot capture runs AFTER the page-load budget race resolves,
              // with its own timeout. A full-page capture of a heavy page must not
              // be cancelled by the nav budget (which closes the WS mid-capture and
-@@ -4934,7 +4966,7 @@
+@@ -4934,7 +4966,7 @@ mod tests {
  
      // --- is_challenge_page ------------------------------------------------------
  
@@ -511,12 +566,10 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  
      #[test]
      fn challenge_page_detects_cloudflare_just_a_moment() {
-@@ -4978,6 +5010,27 @@
-         assert!(is_challenge_page(
-             "<script>window.KPSDK={};KPSDK.now=Date.now;KPSDK.scriptStart=KPSDK.now();</script>"
+@@ -4980,6 +5012,27 @@ mod tests {
          ));
-+    }
-+
+     }
+ 
 +    #[test]
 +    fn page_content_types() {
 +        for ct in [
@@ -536,6 +589,8 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +        ] {
 +            assert!(!is_page_content_type(ct), "{ct}");
 +        }
-     }
- 
++    }
++
      #[test]
+     fn challenge_page_detects_akamai_interstitial() {
+         // marriott.com's.
