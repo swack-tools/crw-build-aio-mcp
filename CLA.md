@@ -1,11 +1,12 @@
 # Contributor License Agreement
 
-Version 1.0
+Version 1.1
 
-This agreement is between you ("You") and swackhamer, the maintainer of
-crw-build-aio-mcp ("the Maintainer"). It covers every contribution You
-submit to this project, such as a pull request, patch or issue attachment
-("Contribution").
+This agreement is between you ("You") and swackhamer, the holder of the
+GitHub account `swackhamer` (https://github.com/swackhamer) and maintainer
+of crw-build-aio-mcp, together with its successors and assigns ("the
+Maintainer"). It covers every contribution You submit to this project,
+such as a pull request, patch or issue attachment ("Contribution").
 
 1. **You keep your copyright.** Nothing here transfers ownership of your
    Contribution to the Maintainer.
@@ -43,6 +44,10 @@ submit to this project, such as a pull request, patch or issue attachment
 
 7. **Telling us about changes.** You will let the Maintainer know if any of
    the statements in section 5 stop being true.
+
+8. **Transfer.** The Maintainer may assign its rights under this
+   agreement to a successor maintainer or to a legal entity that takes
+   over the project. Section 4 binds whoever receives them.
 
 To sign, comment on your pull request with the sentence the CLA bot asks
 for. Signing once covers all your future Contributions to this project.
