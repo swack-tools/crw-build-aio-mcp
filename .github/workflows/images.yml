@@ -81,6 +81,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
+      # The push below names dist from the checkout.
+      CRW_HOME: ${{ github.workspace }}
       REFS: ${{ needs.plan.outputs.refs }}
       ARCH: ${{ matrix.arch }}
       CAMOUFOX_KEY: ${{ needs.plan.outputs.camoufox_key }}

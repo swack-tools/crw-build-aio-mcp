@@ -1,4 +1,4 @@
-# Every image the stack runs, built from the checkouts in src/.
+# Every image the stack runs, built from the checkouts in ~/.crw/src.
 # Driven by scripts/build-images.sh, which sets the CTX_*/SHA_* variables.
 # Base images that upstream Dockerfiles pull FROM a registry are swapped for
 # targets built here via `contexts = { "<image ref>" = "target:<name>" }`.
@@ -10,7 +10,7 @@ variable "PLATFORMS" { default = "" } # comma-separated; empty = builder's nativ
 # CI builds each arch on its own runner and pushes it untagged; the publish step
 # joins the per-arch digests into one multi-arch tag (scripts/ci-publish.sh).
 variable "PUSH_BY_DIGEST" { default = false }
-# Where camofox gets the Camoufox zips: dist/ by default, or an image holding
+# Where camofox gets the Camoufox zips: ~/.crw/dist by default, or an image holding
 # them, e.g. "docker-image://docker.io/you/crw-config-camoufox-dist:<key>-arm64".
 variable "CAMOUFOX_DIST" { default = "" }
 # A registry repo for build cache, e.g. "docker.io/you/crw-config-buildcache"

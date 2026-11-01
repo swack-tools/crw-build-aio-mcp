@@ -1,5 +1,5 @@
-# crw-config — CRW with all three stealth tiers (stealth Chrome via --profile stealth,
-# impersonated-http, Camoufox), every app image built from upstream source.
+# crw-config — CRW with all three stealth tiers (Google Chrome, impersonated-http,
+# Camoufox), every app image built from upstream source.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
@@ -11,7 +11,7 @@ default:
 
 # ── sources ──────────────────────────────────────────────────────────────
 
-# Clone any missing upstream into src/
+# Clone any missing upstream into ~/.crw/src
 fetch *names:
     scripts/fetch-sources.sh {{ names }}
 
@@ -41,15 +41,15 @@ build-all: fetch
 push: build-all
     scripts/build-images.sh all --push
 
-# Compile just the Camoufox browser zip into dist/ (FORCE=1 to rebuild)
+# Compile just the Camoufox browser zip into ~/.crw/dist (FORCE=1 to rebuild)
 build-camoufox arch=host_arch:
     scripts/build-camoufox.sh {{ arch }}
 
 # Build the native crw-mcp proxy binary into bin/
 build-mcp:
     @scripts/fetch-sources.sh crw 2>/dev/null
-    @cd src/crw && cargo build --quiet --release --locked -p crw-mcp --no-default-features
-    @mkdir -p bin && cp src/crw/target/release/crw-mcp bin/crw-mcp
+    @source scripts/lib.sh && cd "$(src_dir crw)" && cargo build --quiet --release --locked -p crw-mcp --no-default-features
+    @source scripts/lib.sh && mkdir -p bin && cp "$(src_dir crw)/target/release/crw-mcp" bin/crw-mcp
 
 [private]
 _build arch: fetch

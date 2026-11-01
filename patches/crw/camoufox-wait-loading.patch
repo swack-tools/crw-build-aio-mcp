@@ -1,0 +1,64 @@
+diff --git a/crates/crw-renderer/src/camoufox.rs b/crates/crw-renderer/src/camoufox.rs
+--- a/crates/crw-renderer/src/camoufox.rs
++++ b/crates/crw-renderer/src/camoufox.rs
+@@ -342,7 +342,14 @@ impl CamoufoxRenderer {
+         let challenge_budget = self.challenge_wait.min(remaining_for_poll);
+         let poll_start = Instant::now();
+         let mut missed_poll = false;
+-        while looks_like_wall(&html) == Some("challenge") {
++        // A page still loading is work in progress too. On a busy machine the
++        // settle above can run out while the document is still arriving, and
++        // that shell (eBay's is its header over an empty #mainContent) would
++        // ship as a thin but successful scrape.
++        while match looks_like_wall(&html) {
++            Some(kind) => kind == "challenge",
++            None => crate::detector::looks_like_loading_placeholder(&html),
++        } {
+             let remaining = challenge_budget.saturating_sub(poll_start.elapsed());
+             if remaining.is_zero() {
+                 break;
+@@ -801,6 +808,44 @@ mod tests {
+         }
+     }
+ 
++    /// A document still arriving when the settle ran out is read again.
++    #[tokio::test]
++    async fn page_still_loading_is_read_again() {
++        let server = MockServer::start().await;
++        Mock::given(method("POST"))
++            .and(path("/tabs"))
++            .respond_with(
++                ResponseTemplate::new(200).set_body_json(serde_json::json!({"tabId": "t1"})),
++            )
++            .mount(&server)
++            .await;
++        Mock::given(method("POST"))
++            .and(path("/tabs/t1/evaluate"))
++            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
++                "ok": true,
++                "result": "<html><head><title>Item | eBay</title></head><body><div id=\"mainContent\"></div></body></html>"
++            })))
++            .up_to_n_times(1)
++            .mount(&server)
++            .await;
++        Mock::given(method("POST"))
++            .and(path("/tabs/t1/evaluate"))
++            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
++                "ok": true,
++                "result": "<html><head><title>Item | eBay</title></head><body><div id=\"mainContent\"><h1>real page</h1></div></body></html>"
++            })))
++            .mount(&server)
++            .await;
++        mount_delete_session(&server).await;
++
++        let r = renderer(&server.uri()).with_challenge_wait(200);
++        let res = r
++            .fetch("https://example.com", &HashMap::new(), None, deadline())
++            .await
++            .expect("the page finished loading, so it must be returned");
++        assert!(res.html.contains("real page"));
++    }
++
+     /// The point of the poll: a challenge that clears between evaluates now
+     /// yields the real page instead of the interstitial.
+     #[tokio::test]
