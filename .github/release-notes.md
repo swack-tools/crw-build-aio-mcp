@@ -1,4 +1,4 @@
-CRW, the Firecrawl-compatible scraper, with all three stealth tiers (`impersonated-http`, Google Chrome as `chrome`, and `camoufox`), plus its MCP server for Claude and Codex. Every image is built from upstream source, with Chrome from Google's stable channel.
+CRW, the Firecrawl-compatible scraper, with all three stealth tiers (`impersonated-http`, Google Chrome as `chrome`, and `camoufox`), plus its MCP server for Claude, Codex and Antigravity. Every image is built from upstream source, with Chrome from Google's stable channel.
 
 ## Install on an Apple Silicon Mac
 

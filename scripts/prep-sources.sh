@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Generate the build inputs that upstream Dockerfiles can't take as-is:
-#   src/*                             — our patches/<name>/*.patch applied
+#   ~/.crw/src/*                      — our patches/<name>/*.patch applied
 #   build/camofox-browser.Dockerfile  — installs our Camoufox zip instead of a release download
-#   src/searxng/searx/version_frozen.py — what upstream's `manage container.build` writes
+#   ~/.crw/src/searxng/searx/version_frozen.py — what upstream's `manage container.build` writes
 # Each patch fails loudly if the upstream line it replaces moves.
 source "$(dirname "$0")/lib.sh"
 
@@ -26,11 +26,11 @@ for entry in "${SOURCES[@]}"; do
   apply_patches "${entry%%|*}"
 done
 
-log "camofox-browser: use dist/camoufox-*-lin.<arch>.zip"
+log "camofox-browser: use $DIST/camoufox-*-lin.<arch>.zip"
 patch_line "$(src_dir camofox-browser)/Dockerfile" "$BUILD/camofox-browser.Dockerfile.tmp" \
   'curl -fL -o /tmp/camoufox.zip' \
   '    && cp /camoufox-dist/camoufox-*-lin.${CAMOUFOX_ARCH}.zip /tmp/camoufox.zip \'
-# The RUN that owns that line needs the dist/ zips mounted.
+# The RUN that owns that line needs the zips mounted.
 patch_line "$BUILD/camofox-browser.Dockerfile.tmp" "$BUILD/camofox-browser.Dockerfile" \
   'RUN case "${TARGETARCH}" in' \
   'RUN --mount=type=bind,from=camoufox,target=/camoufox-dist case "${TARGETARCH}" in \'
