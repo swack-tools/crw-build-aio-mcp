@@ -1,0 +1,43 @@
+name: Tests
+
+# Applies patches/crw/ to crw's current head and runs the unit tests those
+# patches add (scripts/test-patches.sh), such as the eBay reload checks. They
+# run against mock servers, never live sites. A red run can also mean upstream
+# moved under a patch; the nightly image build would stop on that too.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patches:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # Keep crw's clone in the workspace, where the cache step can hash it.
+      CRW_HOME: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo --version
+      - name: Clone crw
+        run: scripts/fetch-sources.sh crw
+      - name: Restore cargo cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/crw/target
+          key: crw-test-${{ runner.os }}-${{ hashFiles('src/crw/Cargo.lock') }}
+          restore-keys: crw-test-${{ runner.os }}-
+      - name: Run patch tests
+        run: scripts/test-patches.sh
