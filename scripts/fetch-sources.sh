@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Clone each missing upstream into src/<name>. With --update, also fast-forward
+# Clone each missing upstream into ~/.crw/src/<name>. With --update, also fast-forward
 # existing clones (and re-apply <NAME>_REF).
 # Usage: fetch-sources.sh [--update] [name...]   (default: all)
 source "$(dirname "$0")/lib.sh"
@@ -47,7 +47,7 @@ for entry in "${SOURCES[@]}"; do
     branch="${branch#origin/}"
     git -C "$dir" checkout --quiet "$branch"
     git -C "$dir" merge --quiet --ff-only "origin/$branch" ||
-      die "$name: local branch $branch has diverged from origin; reset src/$name or remove it"
+      die "$name: local branch $branch has diverged from origin; reset $dir or remove it"
   fi
   new="$(git -C "$dir" rev-parse --short HEAD)"
   summary+=("$name|$old -> $new|${ref:-default branch}")

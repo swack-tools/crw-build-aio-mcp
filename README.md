@@ -38,7 +38,7 @@ Every install/uninstall recipe prints the exact commands and config diffs, then 
 
 Headless `agy -p`, which `just test-stealth-antigravity` uses, denies MCP tools without an allow rule. Add `mcp(crw/crw_scrape)` to `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`, or `mcp(crw/*)` for every crw tool. Installing doesn't add it, because it's your permission setting.
 
-Requirements: Docker with buildx (a containerd image store is needed for `build-all`), `just`, `git`, `python3` (3.11+), `curl`, `openssl`, `lsof`, `column`, `cargo` (for the native MCP binary), plus the `claude` and `codex` CLIs for those recipes. It is developed on Apple Silicon (arm64) with OrbStack.
+Requirements: Docker with buildx 0.19 or newer (a containerd image store is needed for `build-all`), `just`, `git`, `python3` (3.11+), `curl`, `openssl`, `lsof`, `column`, `cargo` (for the native MCP binary), plus the `claude` and `codex` CLIs for those recipes. It is developed on Apple Silicon (arm64) with OrbStack.
 
 To skip the hours of compiling Camoufox, add `CAMOUFOX_DIST_REGISTRY=docker.io/swackhamer/` to `.env` before the first build. It fetches the zip CI built, when CI has one for the same sources.
 
@@ -84,7 +84,7 @@ A search goes through SearXNG to public search engines without a browser, so onl
 | `push` | `build-all`, then push to `$REGISTRY` |
 | `build-camoufox [arch]` | only the Camoufox zip in `dist/` |
 | `build-mcp` | native `bin/crw-mcp` (proxy-only build) |
-| `fetch` | clone any missing upstream into `src/` |
+| `fetch` | clone any missing upstream into `~/.crw/src` |
 | `update` | fast-forward every upstream, then `build` |
 | `install`, `install-claude`, `install-codex`, `install-antigravity` `[--dry-run] [--yes]` | register the MCP server with all three, Claude only, Codex only, or Antigravity only |
 | `uninstall`, `uninstall-claude`, `uninstall-codex`, `uninstall-antigravity` `[--dry-run] [--yes]` | remove it again |
@@ -94,7 +94,8 @@ A search goes through SearXNG to public search engines without a browser, so onl
 
 ## How it fits together
 
-- **Sources:** `scripts/fetch-sources.sh` clones each upstream's default branch into `src/`.
+- **Sources:** `scripts/fetch-sources.sh` clones each upstream's default branch into `~/.crw/src`, outside this folder, because the clones and crw's build output come to thousands of files and a Claude project takes a folder of under 1,000.
+  - `CRW_SRC=/path` in `.env` keeps them somewhere else. A checkout from before this move can run `mkdir -p ~/.crw && mv src ~/.crw/src` instead of cloning again.
   - `<NAME>_REF` checks out something else, e.g. `CAMOUFOX_REF=v152.0.4-beta.28`.
   - `SRC_<NAME>=/path` uses an existing checkout instead of cloning.
 - **Camoufox:** `scripts/build-camoufox.sh` runs upstream's own builder image (`browser/Dockerfile`) and writes `dist/camoufox-<ver>-lin.<arch>.zip`.
@@ -105,7 +106,7 @@ A search goes through SearXNG to public search engines without a browser, so onl
 - **Images:** `docker-bake.hcl` builds the images.
   - Upstream Dockerfiles that build `FROM` a registry image (`searxng/base:*`) get bake targets built here instead, wired in through `contexts`.
   - `scripts/prep-sources.sh` patches camofox-browser's Dockerfile to install our Camoufox zip instead of downloading a release. It also reapplies `patches/<name>/*.patch` to the checkouts on each run, and `fetch-sources.sh --update` reverts them before pulling. Either one fails loudly if upstream changes what it patches.
-- **Compose:** `docker-compose.yml` is this repo's own, so running the stack doesn't need `src/`. It started from the `docker-compose.yml` and `docker-compose.stealth.yml` in crw's repo and keeps their hardening (memory and process limits, read-only root filesystems, no capabilities).
+- **Compose:** `docker-compose.yml` is this repo's own, so running the stack doesn't need the clones. It started from the `docker-compose.yml` and `docker-compose.stealth.yml` in crw's repo and keeps their hardening (memory and process limits, read-only root filesystems, no capabilities).
   - It runs the local images, without upstream's Lightpanda and browserless services, and adds the `camofox` service, which crw reaches through `CRW_RENDERER__CAMOUFOX__BASE_URL`. SearXNG gets crw's `config/searxng/settings.yml`.
   - Its header lists the git blob ids of the upstream files it came from; `prep-sources.sh` warns when upstream changes one, so the change can be weighed here.
   - **Stealth by default:** these settings are for a scrape that sets nothing, as an MCP client sends it.
@@ -198,7 +199,7 @@ Building these from source is out of scope: official base images (debian, ubuntu
 
 ## Notes
 
-- **Version risk:** Camoufox `main` can be ahead of the version camofox-browser pins. If the camoufox tier fails, set `CAMOUFOX_REF` to the pinned tag (see `src/camofox-browser/Dockerfile`) and run `just update`.
+- **Version risk:** Camoufox `main` can be ahead of the version camofox-browser pins. If the camoufox tier fails, set `CAMOUFOX_REF` to the pinned tag (see `~/.crw/src/camofox-browser/Dockerfile`) and run `just update`.
 - **Remaining fingerprint tells:** Chrome has no WebGL (see above), so bot.sannysoft.com fails its two WebGL rows, BrowserScan rates the fingerprint 90% authentic rather than 100%, and iphey.com's check never finishes. The timezone (set by `up.sh`) and CPU count are the host's. fpscanner's `WEBDRIVER` test (on bot.incolumitas.com) fails because `navigator.webdriver` exists, as it does in every current Chrome.
 - **Behavior checks:** the pointer moves, but a scrape never types or fills in a form, so tests that score those (deviceandbrowserinfo.com's interaction test) have nothing to score.
 - **Crash reports:** camofox-browser's crash reporter is off (`CAMOFOX_CRASH_REPORT_ENABLED=false`).

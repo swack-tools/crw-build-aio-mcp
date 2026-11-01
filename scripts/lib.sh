@@ -3,7 +3,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="$ROOT/src"
 DIST="$ROOT/dist"
 BIN="$ROOT/bin"
 BUILD="$ROOT/build"
@@ -24,6 +23,10 @@ load_env() {
   done < "$ROOT/.env"
 }
 load_env
+
+# The upstream clones are thousands of files, so they live outside this folder,
+# which then stays small enough to attach to a Claude project.
+SRC="${CRW_SRC:-$HOME/.crw/src}"
 
 # A checkout's stack is crw-config, a release install's (no Justfile) crw-aio.
 # The install's .env says so too, but its first start runs before that exists.

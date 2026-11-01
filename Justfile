@@ -11,7 +11,7 @@ default:
 
 # ── sources ──────────────────────────────────────────────────────────────
 
-# Clone any missing upstream into src/
+# Clone any missing upstream into ~/.crw/src
 fetch *names:
     scripts/fetch-sources.sh {{ names }}
 
@@ -48,8 +48,8 @@ build-camoufox arch=host_arch:
 # Build the native crw-mcp proxy binary into bin/
 build-mcp:
     @scripts/fetch-sources.sh crw 2>/dev/null
-    @cd src/crw && cargo build --quiet --release --locked -p crw-mcp --no-default-features
-    @mkdir -p bin && cp src/crw/target/release/crw-mcp bin/crw-mcp
+    @source scripts/lib.sh && cd "$(src_dir crw)" && cargo build --quiet --release --locked -p crw-mcp --no-default-features
+    @source scripts/lib.sh && mkdir -p bin && cp "$(src_dir crw)/target/release/crw-mcp" bin/crw-mcp
 
 [private]
 _build arch: fetch

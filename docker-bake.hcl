@@ -1,4 +1,4 @@
-# Every image the stack runs, built from the checkouts in src/.
+# Every image the stack runs, built from the checkouts in ~/.crw/src.
 # Driven by scripts/build-images.sh, which sets the CTX_*/SHA_* variables.
 # Base images that upstream Dockerfiles pull FROM a registry are swapped for
 # targets built here via `contexts = { "<image ref>" = "target:<name>" }`.

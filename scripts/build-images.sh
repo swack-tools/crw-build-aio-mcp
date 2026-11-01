@@ -41,10 +41,13 @@ if [[ -z "${CAMOUFOX_DIST:-}" ]] && { ((${#targets[@]} == 0)) || [[ " ${targets[
   done
 fi
 
+# The clones are outside this folder, and bake won't read there unless told to.
+allow=()
 for entry in "${SOURCES[@]}"; do
   name="${entry%%|*}"
   var="$(env_name "$name")"
   export "CTX_$var=$(src_dir "$name")" "SHA_$var=$(src_sha "$name")"
+  allow+=("--allow=fs.read=$(src_dir "$name")")
 done
 
 # shellcheck disable=SC1091
@@ -54,4 +57,4 @@ export PROJECT TAG REGISTRY="${REGISTRY:-}" BUILD_CACHE="${BUILD_CACHE:-}" PLATF
   CAMOUFOX_VERSION CAMOUFOX_RELEASE SEARXNG_VERSION
 
 log "bake ${targets[*]:-default} for $PLATFORMS (${output[*]})"
-docker buildx bake -f "$ROOT/docker-bake.hcl" "${output[@]}" ${targets[@]+"${targets[@]}"}
+docker buildx bake "${allow[@]}" -f "$ROOT/docker-bake.hcl" "${output[@]}" ${targets[@]+"${targets[@]}"}

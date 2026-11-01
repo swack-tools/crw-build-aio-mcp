@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Generate the build inputs that upstream Dockerfiles can't take as-is:
-#   src/*                             — our patches/<name>/*.patch applied
+#   ~/.crw/src/*                      — our patches/<name>/*.patch applied
 #   build/camofox-browser.Dockerfile  — installs our Camoufox zip instead of a release download
-#   src/searxng/searx/version_frozen.py — what upstream's `manage container.build` writes
+#   ~/.crw/src/searxng/searx/version_frozen.py — what upstream's `manage container.build` writes
 # Each patch fails loudly if the upstream line it replaces moves.
 source "$(dirname "$0")/lib.sh"
 
