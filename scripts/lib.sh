@@ -136,12 +136,20 @@ apply_patches() {
 revert_patches() {
   local dir patch
   dir="$(src_dir "$1")"
+  [[ -n "$(patch_files "$1")" ]] || return 0
   # Last applied first: a later patch can build on an earlier one's lines.
   for patch in $(patch_files "$1" | LC_ALL=C sort -r); do
     if git -C "$dir" apply --reverse --check "$patch" 2>/dev/null; then
       git -C "$dir" apply --reverse "$patch"
     fi
   done
+  # What's left came from an older version of a patch, which these can't undo, or
+  # from someone's edits. The patches can't go on top of it, so a stash keeps it.
+  if [[ -n "$(git -C "$dir" status --porcelain --untracked-files=no)" ]]; then
+    warn "$1: stashed changes the patches couldn't undo, such as an older version of one; see them with: git -C $dir stash show -p"
+    git -C "$dir" -c user.name=crw-config -c user.email=crw-config@localhost \
+      stash push --quiet -m "crw-config: changes patches/$1 couldn't undo"
+  fi
 }
 
 # Docker arch of this host: arm64 | amd64
