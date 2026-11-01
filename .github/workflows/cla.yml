@@ -32,4 +32,11 @@ jobs:
           path-to-signatures: signatures/cla.json
           path-to-document: https://github.com/${{ github.repository }}/blob/main/CLA.md
           branch: cla-signatures
-          allowlist: swackhamer,dependabot[bot],github-actions[bot]
+          # AI coding agents (Claude, Codex, Antigravity, Gemini, Copilot, Cursor)
+          # commit for whoever drives them and don't sign. The action matches a
+          # commit's GitHub login, or its author name when no account is linked;
+          # a * pattern matches anywhere in it, case-sensitively.
+          allowlist: >-
+            swackhamer,dependabot[bot],github-actions[bot],
+            *Claude*,*claude*,*Codex*,*codex*,*Antigravity*,*antigravity*,
+            *Gemini*,*gemini*,*Copilot*,*copilot*,*Cursor*,*cursor*

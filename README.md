@@ -89,6 +89,7 @@ A search goes through SearXNG to public search engines without a browser, so onl
 | `install`, `install-claude`, `install-codex`, `install-antigravity` `[--dry-run] [--yes]` | register the MCP server with all three, Claude only, Codex only, or Antigravity only |
 | `uninstall`, `uninstall-claude`, `uninstall-codex`, `uninstall-antigravity` `[--dry-run] [--yes]` | remove it again |
 | `test-stealth`, `test-stealth-claude`, `test-stealth-codex`, `test-stealth-antigravity` | tests |
+| `test-patches` | offline unit tests our crw patches add (needs cargo); CI runs it on every pull request |
 | `bundle [prefix] [tag]` | the disk image's contents, from local images, into `build/bundle` |
 | `release <version>` | signed tag `v<version>` and a draft GitHub release; CI does the rest |
 
@@ -183,6 +184,7 @@ GitHub Actions publishes multi-arch (amd64 + arm64) images to Docker Hub as `<DO
 |---|---|---|
 | `images.yml` | called by the two below, or by hand | Builds each arch on a native runner and pushes by digest, then joins the digests into multi-arch tags and signs them. |
 | `nightly.yml` | daily | Rebuilds what changed upstream and tags `nightly` and `nightly-YYYYMMDD`. |
+| `test.yml` | pull requests, pushes to `main` | Applies `patches/crw/` to crw's head and runs the unit tests they add (`scripts/test-patches.sh`), such as eBay's reload on a 403 and Camoufox reading eBay's empty shell again. Mock servers only, no live sites. |
 | `release.yml` | `v*` tag | Tags the images `<version>` and `latest`. Builds, signs and notarizes the disk image (`crw-mcp` plus a compose bundle pinned to those images), then publishes the draft release. |
 
 - **Skipping unchanged images:** `scripts/ci-plan.sh` pins each upstream to its current commit. Each image gets a key from its own inputs (its upstreams' commits, their `patches/`, its `docker/<name>/` files and the shared bake recipe) and is pushed as `src-<key>`. A run whose key already exists only retags, so a change to one image rebuilds only that image.
