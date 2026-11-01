@@ -24,7 +24,7 @@ It pulls the prebuilt images from Docker Hub, starts the stack and registers the
 
 ```sh
 just up-stealth                     # first run clones + builds everything (Camoufox takes hours)
-just test-stealth                   # pin a scrape to each tier, then run bot checks with default settings
+just test-stealth                   # pin a scrape to each tier, then run bot checks and an eBay listing with default settings
 just install                        # MCP server into Claude, Codex and Antigravity (shows the changes, asks first)
 just install-claude                 # only Claude Code + Claude Desktop
 just install-codex                  # only Codex CLI + ChatGPT desktop

@@ -5,16 +5,20 @@
 #    bot-detector.rebrowser.net and two Cloudflare challenges. The default
 #    scrape (no renderer, no waitFor, as an MCP client sends it) must pass
 #    each one; the result for each pinned JS tier is reported alongside.
+# 4. An eBay listing with the default scrape, reported with the renderer that
+#    got it: chrome means Chrome got through (on its reload, if eBay turned
+#    the fresh profile away), camoufox means the fallback did. Informational,
+#    since listings end; set EBAY_URL to check another, or EBAY_URL= to skip.
 #    Pages given as STEALTH_URL=url1,url2 are reported per tier.
 source "$(dirname "$0")/lib.sh"
 
 url="$(crw_url)"
 caps="$(curl -fsS -m 10 "$url/v1/capabilities")" || die "crw is not answering on $url — run: $(hint up-stealth up)"
 
-python3 -I - "$url" "$caps" "${STEALTH_URL:-}" <<'PY'
+python3 -I - "$url" "$caps" "${STEALTH_URL:-}" "${EBAY_URL-https://www.ebay.com/itm/397708504283}" <<'PY'
 import json, re, sys, time, urllib.error, urllib.request
 
-base, caps, extra = sys.argv[1], json.loads(sys.argv[2]), sys.argv[3]
+base, caps, extra, ebay = sys.argv[1], json.loads(sys.argv[2]), sys.argv[3], sys.argv[4]
 TIERS = ["impersonated-http", "chrome", "camoufox"]
 JS_TIERS = ["chrome", "camoufox"]
 failed = False
@@ -122,6 +126,29 @@ for name, page, check in CHECKS:
             failed |= not ok
         mark = ("PASS" if ok else "FAIL") if tier is None else ("ok  " if ok else "no  ")
         print(f"  {mark}  {name:<30} {label:<18} {result}  {secs:.1f}s")
+
+# eBay's block pages: "Something went wrong" is the 403 a fresh profile gets
+# first, "Pardon our interruption" its captcha.
+EBAY_WALL = re.compile(r"something went wrong|pardon our interruption|error page \| ebay", re.I)
+if ebay:
+    print("\nebay listing, default scrape (informational: chrome = Chrome got it, camoufox = the fallback did)")
+    data, secs = scrape(ebay, None, ["markdown"])
+    doc = data.get("data") or {}
+    meta = doc.get("metadata") or {}
+    md = doc.get("markdown") or ""
+    text = (meta.get("title") or "") + " " + md[:2000]
+    if not data.get("success"):
+        verdict = f"error: {data.get('error') or data.get('warning') or '-'}"
+    elif EBAY_WALL.search(text):
+        verdict = "block page"
+    elif len(md) < 2000:
+        verdict = "short page (empty shell?)"
+    else:
+        verdict = "listing"
+    print(f"  {'ok  ' if verdict == 'listing' else 'no  '}  renderedWith={meta.get('renderedWith')} "
+          f"status={meta.get('statusCode')} chars={len(md)} {verdict}  {secs:.1f}s")
+    if verdict == "listing":
+        print(f"        title: {(meta.get('title') or '-')[:80]}")
 
 CHALLENGE = re.compile(r"just a moment|attention required|access denied|captcha|are you a robot|verify you are human", re.I)
 for page in filter(None, extra.split(",")):
