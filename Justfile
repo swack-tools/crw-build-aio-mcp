@@ -49,7 +49,10 @@ build-camoufox arch=host_arch:
 build-mcp:
     @scripts/fetch-sources.sh --quiet crw
     @source scripts/lib.sh && cd "$(src_dir crw)" && cargo build --quiet --release --locked -p crw-mcp --no-default-features
-    @source scripts/lib.sh && mkdir -p bin && cp "$(src_dir crw)/target/release/crw-mcp" bin/crw-mcp
+    @# Copy to a new file and rename it into place: overwriting a binary macOS
+    @# has already run keeps its old signature cached, and the kernel then kills
+    @# the new one on launch (exit 137), so the MCP clients fail to connect.
+    @source scripts/lib.sh && mkdir -p bin && cp "$(src_dir crw)/target/release/crw-mcp" bin/crw-mcp.new && mv -f bin/crw-mcp.new bin/crw-mcp
 
 [private]
 _build arch: fetch
