@@ -23,7 +23,8 @@ how MCP clients call it, tries each tier until one gets the page:
 
 1. CRW renders the page in Chrome.
 1. If Chrome is blocked, CRW renders the page in Camoufox.
-1. If Camoufox is blocked, CRW tries the `impersonated-http` tier.
+1. If Camoufox is blocked, CRW tries the `impersonated-http` tier, unless the block
+   was Akamai's, which that tier can't get past.
 1. If every tier is blocked, the scrape fails as blocked instead of returning the
    block page.
 
