@@ -249,6 +249,12 @@ following:
 - Mostly the script's letters, for languages written without spaces, such as
   Chinese, Japanese, and Thai.
 
+### `zz-runtime-apt-upgrade.patch`
+
+CRW's runtime base is pinned by digest, so its layer now runs `apt-get upgrade` to
+take Debian's security fixes. CI passes the ISO week as `REFRESH`, which reruns that
+layer past the build cache once a week.
+
 ## Ports
 
 CRW is published on `127.0.0.1:$CRW_HOST_PORT`, which defaults to 3000. If the port
