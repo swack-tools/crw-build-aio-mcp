@@ -18,6 +18,9 @@ variable "CAMOUFOX_DIST" { default = "" }
 # <repo>:crw-<arch>, so a crw change that leaves Cargo.lock alone skips
 # recompiling its dependencies. Used only for single-platform builds.
 variable "BUILD_CACHE" { default = "" }
+# Changes once a week in CI (scripts/ci-plan.sh refresh). crw's runtime stage
+# takes it as an ARG, so its apt layer reruns instead of coming from BUILD_CACHE.
+variable "REFRESH" { default = "" }
 
 variable "BUILD_DIR" { default = "build" }
 variable "DIST_DIR" { default = "dist" }
@@ -84,6 +87,7 @@ target "crw" {
   context  = CTX_CRW
   args = {
     CARGO_PKGS = "-p crw-server --features cdp,impersonated,camoufox -p crw-mcp -p crw-cli"
+    REFRESH    = REFRESH
   }
   labels     = oci("https://github.com/fastcrw/crw", SHA_CRW)
   tags       = image("crw")

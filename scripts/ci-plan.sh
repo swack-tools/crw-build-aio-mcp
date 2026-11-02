@@ -8,6 +8,7 @@
 #   refs=CRW_REF=<sha> CAMOUFOX_REF=<sha> ...  (export to check out the same commits)
 #   keys={"crw": "<key>", ...}
 #   camoufox_key=<key>                         (tag prefix of the camoufox-dist image)
+#   refresh=<YYYY-Www>                         (ISO week, part of every key; pass it to build-images.sh as REFRESH)
 # With REGISTRY set, it also checks what already exists there:
 #   build=["crw", ...]                         (images with no src-<key> tag yet)
 #   camoufox_arches=["arm64", ...]             (Camoufox zips to compile for them;
@@ -22,7 +23,7 @@ for entry in "${SOURCES[@]}"; do
 done
 
 python3 -I - "$ROOT" "${REGISTRY:-}" "$PROJECT" "$(camoufox_key)" "${shas[@]}" <<'PY'
-import glob, hashlib, json, os, re, subprocess, sys, urllib.request
+import glob, hashlib, json, os, re, subprocess, sys, time, urllib.request
 root, registry, project, camoufox_key, pairs = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
 sha = dict(p.split("=", 1) for p in pairs)
 
@@ -51,11 +52,15 @@ def chrome_stable(arch):
     index = urllib.request.urlopen(url, timeout=30).read().decode()
     return re.search(r"^Package: google-chrome-stable\n(?:.+\n)*?Version: (.+)$", index, re.M).group(1)
 chrome = [f"chrome-{arch}={chrome_stable(arch)}" for arch in ("amd64", "arm64")]
+# Keys say nothing about base images or distro packages, so a quiet upstream
+# would keep shipping old ones. The ISO week in every key rebuilds everything on
+# the first run of each week; Camoufox itself is not recompiled.
+refresh = time.strftime("%G-W%V", time.gmtime())
 keys = {}
 for image, sources in IMAGES.items():
     # Its own docker/<image>/ files and the patches to its upstreams.
     ours = files(f"docker/{image}/**/*") + [p for s in sources for p in files(f"patches/{s}/*.patch")]
-    parts = [image, common] + [f"{s}={sha[s]}" for s in sources]
+    parts = [image, common, f"refresh={refresh}"] + [f"{s}={sha[s]}" for s in sources]
     if ours:
         parts.append(recipe(*ours))
     if image == "camofox":
@@ -68,6 +73,7 @@ refs = " ".join(f"{name.upper().replace('-', '_')}_REF={value}" for name, value 
 print(f"refs={refs}")
 print(f"keys={json.dumps(keys)}")
 print(f"camoufox_key={camoufox_key}")
+print(f"refresh={refresh}")
 
 if registry:
     def exists(ref):

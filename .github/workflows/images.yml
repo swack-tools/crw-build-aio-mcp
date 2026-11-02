@@ -53,6 +53,7 @@ jobs:
       refs: ${{ steps.plan.outputs.refs }}
       keys: ${{ steps.plan.outputs.keys }}
       camoufox_key: ${{ steps.plan.outputs.camoufox_key }}
+      refresh: ${{ steps.plan.outputs.refresh }}
       build: ${{ steps.plan.outputs.build }}
       camoufox_arches: ${{ steps.plan.outputs.camoufox_arches }}
     steps:
@@ -153,6 +154,8 @@ jobs:
       IMAGE: ${{ matrix.image }}
       ARCH: ${{ matrix.arch }}
       CAMOUFOX_KEY: ${{ needs.plan.outputs.camoufox_key }}
+      # The week in the plan's keys; it reruns crw's cached apt layer weekly.
+      REFRESH: ${{ needs.plan.outputs.refresh }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Free disk space
