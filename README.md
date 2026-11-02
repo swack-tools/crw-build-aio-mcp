@@ -1,217 +1,127 @@
+<!-- vale Google.Headings = NO -->
 # crw-build-aio-mcp
+<!-- vale Google.Headings = YES -->
 
-Run [CRW](https://github.com/fastcrw/crw), the Firecrawl-compatible scraper, locally with all three of its stealth tiers on at once, built from upstream source:
+[![Latest release](https://img.shields.io/github/v/release/swack-tools/crw-build-aio-mcp)](https://github.com/swack-tools/crw-build-aio-mcp/releases/latest)
+[![Tests](https://github.com/swack-tools/crw-build-aio-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/swack-tools/crw-build-aio-mcp/actions/workflows/test.yml)
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
 
-| tier | what it is | where it runs |
+crw-build-aio-mcp runs [CRW](https://github.com/fastcrw/crw), a
+Firecrawl-compatible web scraper, on your own machine with all three of its
+stealth tiers turned on. It also registers CRW's Model Context Protocol (MCP)
+server, so Claude, Codex, and Antigravity can scrape and search the web through
+your local stack.
+
+| Tier | Description | Where it runs |
 |---|---|---|
-| `chrome` | Google Chrome on a virtual display, driven over plain CDP | `chrome-stealth` container |
-| `impersonated-http` | no browser; mimics Chrome's TLS/HTTP2 fingerprint | inside crw |
+| `chrome` | Google Chrome on a virtual display, driven over the Chrome DevTools Protocol (CDP) | `chrome-stealth` container |
 | `camoufox` | Camoufox, a fingerprint-spoofing Firefox fork, behind the camofox-browser REST server | `camofox` container |
+| `impersonated-http` | No browser. Mimics Chrome's TLS and HTTP/2 fingerprint | Inside `crw` |
 
-A scrape with no `renderer` set (which is how Claude, Codex and Antigravity call it) is fetched over `impersonated-http` first, which takes about 0.5s on a server-rendered page. If the answer is a block page, an error or a page that looks unfinished (an empty shell, a loading placeholder), crw renders it in Chrome, then in Camoufox if Chrome is blocked. If every tier is blocked, the scrape fails as blocked rather than returning the block page. Files (PDFs and the like) go to `impersonated-http` directly. With `renderJs: false` it uses plain HTTP (with a Chrome User-Agent) instead, then the `impersonated-http` tier if a site blocks that. With `renderJs: true`, or `CRW_RENDERER__RENDER_JS_DEFAULT=true`, it renders in a browser first (8-18s a page).
+You don't need to choose a tier. A scrape that doesn't set `renderer`, which is
+how MCP clients call it, tries each tier until one gets the page:
 
-No prebuilt app images are pulled. The scripts clone the upstream repos and compile crw, Camoufox (Firefox), camofox-browser and SearXNG. Chrome is Google's stable release, from Google's apt repository.
+1. CRW renders the page in Chrome.
+1. If Chrome is blocked, CRW renders the page in Camoufox.
+1. If Camoufox is blocked, CRW tries the `impersonated-http` tier, unless the block
+   was Akamai's, which that tier can't get past.
+1. If every tier is blocked, the scrape fails as blocked instead of returning the
+   block page.
 
-## Install a release (no build)
+Files, such as PDFs, go straight to `impersonated-http`. For the sites that
+this order got past when last checked, see
+[Anti-bot results](docs/anti-bot-results.md).
 
-Each [release](https://github.com/swack-tools/crw-build-aio-mcp/releases) has a signed, notarized disk image for Apple Silicon Macs.
-1. Start Docker (OrbStack or Docker Desktop).
-2. Open the disk image and run `/Volumes/crw-build-aio-mcp/install.sh` in Terminal.
+## Get started
 
-It pulls the prebuilt images from Docker Hub, starts the stack and registers the MCP server, asking before each config change. Afterwards, `crw-aio help` manages the stack. Images are also tagged `nightly`, rebuilt each night from upstream heads.
+You need an Apple silicon Mac with Docker running, either OrbStack or Docker
+Desktop.
 
-## Build it yourself
+1. Download the disk image from the
+   [latest release](https://github.com/swack-tools/crw-build-aio-mcp/releases/latest)
+   and open it.
+1. In Terminal, run the installer:
+
+   ```sh
+   /Volumes/crw-build-aio-mcp/install.sh
+   ```
+
+   The installer pulls about 10 GB of images from Docker Hub, starts the stack,
+   and registers the MCP server. It shows each config change and asks before
+   applying it.
+
+1. Check that all three tiers work:
+
+   ```sh
+   crw-aio test
+   ```
+
+   If your shell can't find `crw-aio`, add `~/.local/bin` to your `PATH`.
+
+For the details, see [Install from a release](docs/install.md). On Linux, or to
+compile everything yourself, see [Build from source](docs/build-from-source.md).
+
+## Scrape and search
+
+Ask your MCP client to scrape a page or search the web. The server provides
+`crw_scrape`, `crw_search`, `crw_crawl`, `crw_map`, `crw_extract`, and
+`crw_parse_file`.
+
+CRW also serves Firecrawl's API on `http://127.0.0.1:3000`. If that port is busy
+when the stack starts, you can choose the next free one. Leave `renderer` unset
+to get the stealth order.
+
+To scrape one page:
 
 ```sh
-just up-stealth                     # first run clones + builds everything (Camoufox takes hours)
-just test-stealth                   # pin a scrape to each tier, then run bot checks and an eBay listing with default settings
-just install                        # MCP server into Claude, Codex and Antigravity (shows the changes, asks first)
-just install-claude                 # only Claude Code + Claude Desktop
-just install-codex                  # only Codex CLI + ChatGPT desktop
-just install-antigravity            # only the Antigravity app, IDE and agy
-just test-stealth-claude            # the same check, driven by the claude CLI through MCP
-just test-stealth-codex             # ... and by codex exec
-just test-stealth-antigravity       # ... and by agy
-```
-
-Every install/uninstall recipe prints the exact commands and config diffs, then asks `Apply these changes? [y/N]`. Add `--dry-run` to only print, or `--yes` to skip the question (needed without a terminal).
-
-Headless `agy -p`, which `just test-stealth-antigravity` uses, denies MCP tools without an allow rule. Add `mcp(crw/crw_scrape)` to `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`, or `mcp(crw/*)` for every crw tool. Installing doesn't add it, because it's your permission setting.
-
-Requirements: Docker with buildx 0.19 or newer (a containerd image store is needed for `build-all`), `just`, `git`, `python3` (3.11+), `curl`, `openssl`, `lsof`, `column`, `cargo` (for the native MCP binary), plus the `claude` and `codex` CLIs for those recipes. It is developed on Apple Silicon (arm64) with OrbStack.
-
-To skip the hours of compiling Camoufox, add `CAMOUFOX_DIST_REGISTRY=docker.io/swackhamer/` to `.env` before the first build. It fetches the zip CI built, when CI has one for the same sources.
-
-### On Linux
-
-The build and the stack also run on Linux (checked on Ubuntu, arm64). Some things differ from a Mac:
-
-- `column` comes from `bsdextrautils` on Debian and Ubuntu: `sudo apt install just bsdextrautils lsof`. Without `lsof`, a busy port goes unnoticed until `compose up` fails on it.
-- If a build stops at `apt-get` with `Invalid cross-device link`, Docker's own builder has hit a limit of overlay2 on btrfs. Build with a container builder instead, which `just` picks up from the environment:
-  ```sh
-  docker buildx create --name crw-build --driver docker-container
-  BUILDX_BUILDER=crw-build just up-stealth
-  ```
-- The MCP recipes register Claude Code and Codex. There is no Claude Desktop step, since that one is macOS only.
-
-## Use it
-
-crw speaks Firecrawl's API on `http://127.0.0.1:3000` (see **Ports**). Leave `renderer` unset to get the stealth order above.
-
-```sh
-# one page
 curl -s localhost:3000/v1/scrape -H 'content-type: application/json' \
   -d '{"url":"https://example.com","formats":["markdown"]}'
-# search; hits are in data.results
+```
+
+To search, with the hits in `data.results`:
+
+```sh
 curl -s localhost:3000/v1/search -H 'content-type: application/json' \
   -d '{"query":"crw scraper","limit":5}'
-# search, and scrape each hit (data.results[].markdown)
+```
+
+To search and scrape each hit, with the content in `data.results[].markdown`:
+
+```sh
 curl -s localhost:3000/v1/search -H 'content-type: application/json' \
   -d '{"query":"crw scraper","limit":3,"scrapeOptions":{"formats":["markdown"]}}'
 ```
 
-A search goes through SearXNG to public search engines without a browser, so only the scrape of each hit uses the stealth tiers. The MCP server offers the same as `crw_scrape` and `crw_search`, plus `crw_crawl`, `crw_map`, `crw_extract` and `crw_parse_file`.
+A search goes through SearXNG to public search engines without a browser, so
+only the scrape of each hit uses the stealth tiers.
 
-## Recipes
+With `renderJs: false`, a scrape uses plain HTTP with a Chrome User-Agent, then
+the `impersonated-http` tier if the site blocks that.
 
-| recipe | does |
+## Documentation
+
+| Page | Read it to |
 |---|---|
-| `up-stealth` / `run-stealth` | `build`, choose a host port, `compose up --wait`, print the live renderers |
-| `down`, `ps`, `logs [svc…]`, `caps` | stack housekeeping |
-| `build` | every image for this machine's arch |
-| `build-arm64`, `build-x86` | every image for one arch |
-| `build-all` | both arches as multi-arch images |
-| `push` | `build-all`, then push to `$REGISTRY` |
-| `build-camoufox [arch]` | only the Camoufox zip in `~/.crw/dist` |
-| `build-mcp` | native `bin/crw-mcp` (proxy-only build) |
-| `fetch` | clone any missing upstream into `~/.crw/src` |
-| `update` | fast-forward every upstream, then `build` |
-| `install`, `install-claude`, `install-codex`, `install-antigravity` `[--dry-run] [--yes]` | register the MCP server with all three, Claude only, Codex only, or Antigravity only |
-| `uninstall`, `uninstall-claude`, `uninstall-codex`, `uninstall-antigravity` `[--dry-run] [--yes]` | remove it again |
-| `test-stealth`, `test-stealth-claude`, `test-stealth-codex`, `test-stealth-antigravity` | tests |
-| `test-patches` | offline unit tests our crw patches add (needs cargo); CI runs it on every pull request |
-| `bundle [prefix] [tag]` | the disk image's contents, from local images, into `build/bundle` |
-| `release <version>` | signed tag `v<version>` and a draft GitHub release; CI does the rest |
-
-## How it fits together
-
-- **Sources:** `scripts/fetch-sources.sh` clones each upstream's default branch into `~/.crw/src`, outside this folder, because the clones and crw's build output come to thousands of files and a Claude project takes a folder of under 1,000. The Camoufox zip, over a gigabyte, is in `~/.crw/dist` too.
-  - `CRW_HOME=/path` in `.env` keeps them somewhere else. A checkout from before this move can run `mkdir -p ~/.crw && mv src dist .stamps ~/.crw/` instead of cloning and building again.
-  - `<NAME>_REF` checks out something else, e.g. `CAMOUFOX_REF=v152.0.4-beta.28`.
-  - `SRC_<NAME>=/path` uses an existing checkout instead of cloning.
-- **Camoufox:** `scripts/build-camoufox.sh` runs upstream's own builder image (`browser/Dockerfile`) and writes `~/.crw/dist/camoufox-<ver>-lin.<arch>.zip`.
-  - The builder runs as linux/amd64 and cross-compiles to arm64 or x86_64, which is the path upstream tests.
-  - Its base image is pinned to `ubuntu:24.04` because `26.04`'s tar fails under Rosetta.
-  - Toolchains are kept in a named Docker volume per Firefox version, and ccache in one that outlives versions, so rebuilds are incremental. `CAMOUFOX_CCACHE=<dir>` keeps ccache in a directory instead, which is how CI carries it between runs in the GitHub cache. A compile ends by printing its ccache hit rate.
-  - A cold build takes hours under emulation. To skip it, set `CAMOUFOX_DIST_REGISTRY=docker.io/<user>/` (or `REGISTRY`) in `.env`. The script then fetches the zip CI built from the same inputs, in about a minute, and compiles only when there is none. This repo's CI publishes to `docker.io/swackhamer/`. `CAMOUFOX_PULL=0` or `FORCE=1` always compiles.
-- **Images:** `docker-bake.hcl` builds the images.
-  - Upstream Dockerfiles that build `FROM` a registry image (`searxng/base:*`) get bake targets built here instead, wired in through `contexts`.
-  - `scripts/prep-sources.sh` patches camofox-browser's Dockerfile to install our Camoufox zip instead of downloading a release. It also reapplies `patches/<name>/*.patch` to the checkouts on each run, and `fetch-sources.sh --update` reverts them before pulling. Either one fails loudly if upstream changes what it patches. Changes the patches can't undo, such as an older version of one after a `git pull` here, are stashed in the clone with a warning.
-- **Compose:** `docker-compose.yml` is this repo's own, so running the stack doesn't need the clones. It started from the `docker-compose.yml` and `docker-compose.stealth.yml` in crw's repo and keeps their hardening (memory and process limits, read-only root filesystems, no capabilities).
-  - It runs the local images, without upstream's Lightpanda and browserless services, and adds the `camofox` service, which crw reaches through `CRW_RENDERER__CAMOUFOX__BASE_URL`. SearXNG gets crw's `config/searxng/settings.yml`.
-  - Its header lists the git blob ids of the upstream files it came from; `prep-sources.sh` warns when upstream changes one, so the change can be weighed here.
-  - **Stealth by default:** these settings are for a scrape that sets nothing, as an MCP client sends it.
-    - `CRW_RENDERER__MODE=chrome`: upstream's `auto` mode tries Lightpanda first, which has no stealth and answers most pages, so Lightpanda is neither built nor started.
-    - `CRW_RENDERER__CAMOUFOX__INCLUDE_IN_AUTO=true`: Camoufox is tried when Chrome is blocked.
-    - `CRW_RENDERER__RENDER_JS_DEFAULT` is unset: crw decides per page. It fetches over `impersonated-http` and renders in a browser only when the page is blocked, errored or looks unfinished. Rendering every page took 8-18s against about 0.5s (#18). The trade-off: crw judges "unfinished" from the HTML (thin body, loading placeholder, framework markers), so a server-rendered page that fills itself in after load (a bot check's verdict, say) can come back as its shell. Set the variable to `true` to render every page, or pass `renderJs: true` or `renderer: "chrome"` per request.
-    - `CRW_RENDERER__CHROME_INTERCEPT_RESOURCES=false`: pages load images, fonts and analytics as they would for a person. Upstream blocks them to save time, and pages can tell.
-    - `CRW_RENDERER__CHROME_CHALLENGE_MAX_RETRIES=8` and `CRW_RENDERER__CHROME_NAV_BUDGET_MS=40000`: up to 24s for an anti-bot challenge to clear. Upstream checks once, inside a 12s page budget.
-    - `CRW_RENDERER__CHROME_OUTBOUND_CHECK=false`: Chrome's requests go straight out, as in a person's browser. Upstream pauses each one to check it against private network ranges, which breaks some anti-bot scripts (Kasada's cleared one cold visit in four with it, every one without). Chrome's own Local Network Access still asks before a public page reaches a private address.
-    - `CRW_RENDERER__CHROME_CONTEXT_POOL_ENABLED=false`: pages open in Chrome's own profile, as in a person's browser, so cookies a site sets (an anti-bot clearance, say) are there on the next visit. Upstream's pool gives each page its own browser context, which pages can tell is incognito.
-  - **User-Agent:** it replaces crw's `CRW/0.0.1` with a Linux Chrome User-Agent. `up.sh` sets the version to match the Chrome inside chrome-stealth.
-  - **Chrome:** `docker/chrome-stealth` runs Google Chrome stable on a virtual display (Xvfb, 1920×1080), with nothing attached to it but crw. Upstream runs browserless's Chromium image instead.
-    - browserless drives every Chrome it launches through puppeteer, which turns on the CDP Runtime domain in each page and worker. Pages can detect that, so deviceandbrowserinfo.com reported a bot and Cloudflare's challenge never cleared.
-    - Headless Chrome also differs from desktop Chrome (its User-Agent inside workers, client hints, timing), and stealth scripts that cover this up get caught by checks such as CreepJS. Windowed Chrome has nothing to cover up.
-    - It is Google Chrome, not Chromium: detectors such as rebrowser's flag a Chromium build (as Chrome for Testing) because its client hints don't name Google Chrome.
-    - WebGL is off, as Chrome leaves it on a machine with no usable GPU. Each way of turning it on in a container gets caught by a real anti-bot vendor: Mesa's software renderer by Akamai, the same renderer under a real GPU's name by DataDome, and Chrome's SwiftShader by Cloudflare. With it off, all three let Chrome through.
-    - The display has a 40px taskbar's worth of space reserved and the window fits the rest. A screen whose whole area is free, with a window as large as the screen, is how headless Chrome looks.
-    - `pointer.js` moves the real X11 pointer (xdotool) over each page as it opens and scrolls a little, since behavior checks score a page that loads with no pointer movement as a bot. It also clicks Cloudflare's Turnstile checkbox ("Verify you are human") when a site asks for it. A click sent over DevTools reports matching screen and page coordinates, a known automation tell, so this one is real input too.
-    - Chrome only listens on loopback when it has a window, so a small relay (`relay.js`) exposes its DevTools port to crw.
-    - It gets this machine's timezone from `up.sh` (as does Camoufox), since a detector can compare the timezone with the IP's location.
-  - **Camoufox:** `docker/camofox` adds a camofox-browser plugin that clicks Cloudflare's Turnstile checkbox ("Verify you are human"), which Cloudflare shows Camoufox where it lets Chrome straight through. The click is a real X11 one (xdotool on Camoufox's virtual display), because Playwright's synthetic clicks don't reach the checkbox's cross-origin iframe.
-  - **`patches/crw/cdp-stealth.patch`:**
-    - crw no longer turns on the CDP Runtime domain, which it never needed.
-    - Each section of its injected stealth script only patches a value that is missing or wrong, so desktop Chrome runs it as a no-op. The WebGL spoof ("Intel Iris OpenGL Engine", a macOS GPU under a Linux User-Agent) is gone.
-    - It skips the User-Agent override when Chrome already sends that User-Agent, because an override without client-hint metadata empties `navigator.userAgentData`.
-    - Once an anti-bot challenge clears, it reports the real page's HTTP status rather than the challenge's 403, and stops waiting. It used to take Cloudflare's telemetry script, which every Cloudflare page carries, for a challenge still running.
-    - After a page loads it waits until the network has been quiet for a second (1–4s), so scripts that check the browser after load have written their result.
-    - It waits for Kasada's challenge (an HTTP 429 that solves itself and reloads) as it does for Cloudflare's.
-    - It answers JavaScript dialogs (`alert`, `confirm`) after 0.7s. crw left them open, which froze the page until the render timed out.
-    - It adds `CRW_RENDERER__CHROME_OUTBOUND_CHECK` (see above).
-  - **`patches/crw/camoufox-wait-for.patch`** makes the Camoufox renderer honor `waitFor`, and without one, wait for the page to settle (camofox-browser's own readiness check, up to 6s) instead of reading it the moment navigation returns.
-  - **`patches/crw/camoufox-wait-loading.patch`:** a page that still looks like it is loading gets read again, within the time Camoufox already allows for a challenge to clear. On a busy machine the 6s wait above could run out while the document was still arriving, and eBay's empty page shell came back as a successful scrape.
-  - **`patches/crw/camoufox-after-chrome.patch`** lets Camoufox follow Chrome in auto mode (`include_in_auto`) when the mode is `chrome`, not only `auto`.
-  - **`patches/crw/challenge-markers.patch`** fixes how crw tells a block page from a page that loaded, which decides whether it tries the next tier:
-    - PerimeterX's sensor tag and Cloudflare's telemetry script, which sit on pages that loaded, no longer count as blocks. On Walmart, Wayfair and Trulia that had sent every scrape on to Camoufox for nothing.
-    - It recognizes Akamai's block page as adidas serves it ("Reference Error: …"), Akamai's interstitial (`sec-if-cpt`, a proof of work that reloads into the page) and Reddit's "Prove your humanity" captcha. Both browsers wait for Akamai's interstitial to clear, as they do for Cloudflare's and Kasada's. Before, these came back as successful scrapes of the block page.
-    - It reports the real page's status after AWS WAF's challenge (a 202) clears.
-  - **`patches/crw/auto-impersonated-first.patch`:** the auto arm's first request (a scrape that sets no `renderJs`) goes through the Chrome-impersonating client instead of reqwest, whose TLS handshake is a bot's, as `render-browser-first.patch` explains below.
-  - **`patches/crw/render-browser-first.patch`:** a page goes to the browser first. Upstream fetched every page once over plain HTTP before rendering it, to check its content type. That request is a bot's TLS handshake from your IP, and Akamai answered it with an IP-reputation block on Kohl's, Marriott and Apartments.com, then blocked Chrome on the latter two.
-    - HTTP is now the fallback, through the `impersonated-http` client: when both browsers are blocked or fail, and for files. A URL naming a file (`.pdf`, `.docx`, `.zip`, images, media) goes straight to it, and Chrome hands over a PDF or download it opens from any other URL.
-    - When the fallback gets a block page too, the scrape fails as blocked rather than returning that page.
-  - **`patches/crw/revisit-walls.patch`:** when Chrome's first visit gets a block page (not a challenge that solves itself, which it waits out), it reloads once after a short pause, as a person would. Some anti-bot systems turn a first visit away while setting a cookie that lets the next one through: from a fresh profile, Reddit shows a captcha the first time and its automatic check passes on the reload. A page counts as a block by its HTTP status too, because eBay's first answer to a fresh profile is a 403 that only reads "Something went wrong". A 429 doesn't count on its status alone, since another request right away won't help.
-  - **`patches/crw/status-not-found.patch`:** a 404 or 410 is the answer, so a dead link fails as `Target returned 404 Not Found`, as it does with `renderJs: false`. Upstream treats those statuses as possible blocks and tries the next browser, and Camoufox reported every page as a 200, so a dead link came back as a successful scrape of its "Page not found" page. A block page served with a 404 still goes to the next browser. The Camoufox tier now passes on a 404 or 410 from camofox-browser's navigation; other statuses still read as 200, since a challenge may have cleared after them.
-  - **`patches/crw/xhr-prose-only.patch`:** one of crw's fallbacks for a page whose text loads later builds markdown from long strings in the JSON the page fetched. It took any string of 120 characters or more, so anti-bot sensor replies (PerimeterX's base64 payload), script bundles and stylesheets that pages fetch as JSON became the whole markdown of chegg.com and homedepot.com, which read as a block page. It now keeps only strings that read as prose, judged on the text a reader sees (HTML tags dropped and entities such as `&nbsp;` or `&#x4E2D;` decoded): little code punctuation, and either at least eight words with none over 60 characters or, for languages written without spaces (Chinese, Japanese, Thai and others), mostly that script's letters.
-- **Ports:** crw is published on `127.0.0.1:$CRW_HOST_PORT` (default 3000). If the port is busy, `up-stealth` offers the next free one and saves the choice to `.env`.
-- **MCP:** `bin/crw-mcp` runs in proxy mode, pointed at the stack with `CRW_API_URL`.
-  - Codex gets `tool_timeout_sec = 300`, because Camoufox scrapes can outlast its 60s default.
-  - Every config file edit is shown as a diff and backed up first.
-
-## What it gets past
-
-With default settings (no `renderer`, no `waitFor`) and a fresh Chrome profile, crw loaded the real page on each of these sites, checked on 2026-10-29 (ebay.com on 2026-10-31). Sites are grouped by the protection each is known to use; Chrome got each one itself except those marked *(Camoufox)*, where Chrome was turned away and the fallback got through:
-
-| protection | sites |
-|---|---|
-| Cloudflare (including interactive Turnstile) | g2.com, indeed.com, glassdoor.com, crunchbase.com, gitlab.com sign-in, upwork.com, chatgpt.com, quizlet.com, coingecko.com, doordash.com, opensea.io, ziprecruiter.com, medium.com, genius.com, coinbase.com, patreon.com, producthunt.com, similarweb.com, crunchyroll.com, nowsecure.nl, nopecha.com's demo, scrapingcourse.com's challenges, investing.com *(Camoufox)* |
-| DataDome | leboncoin.fr, tripadvisor.com, hermes.com, reuters.com, etsy.com, yelp.com, idealista.com, allegro.pl, soundcloud.com, fnac.com, seloger.com, vinted.com, footlocker.com, wsj.com, deezer.com |
-| HUMAN (PerimeterX) | zillow.com, walmart.com, stockx.com, wayfair.com, bloomberg.com, seekingalpha.com, chegg.com, bhphotovideo.com, zoominfo.com, realtor.com, trulia.com, ssense.com, priceline.com, crateandbarrel.com, fiverr.com *(Camoufox)* |
-| Akamai | nike.com, bestbuy.com, lowes.com, ups.com, fedex.com, usps.com, macys.com, kohls.com, costco.com, united.com, delta.com, aa.com, marriott.com, hilton.com, walgreens.com, sephora.com, asos.com, zara.com, ikea.com, homedepot.com, adidas.com, apartments.com, expedia.com, hm.com *(the last five Camoufox)* |
-| Kasada | hyatt.com, twitch.tv, realestate.com.au, wizzair.com, scheels.com, ticketek.com.au |
-| Imperva | whoscored.com, pokemoncenter.com, copart.com, iaai.com, ryanair.com |
-| AWS WAF | ballotpedia.org, imdb.com, goodreads.com, booking.com, stubhub.com, audible.com |
-| F5 Shape | southwest.com, target.com, nordstrom.com, starbucks.com |
-| their own | amazon.com, google.com search, bing.com, duckduckgo.com, reddit.com (on the reload), instagram.com, x.com, youtube.com, tiktok.com, airbnb.com, kayak.com, ticketmaster.com, shein.com, temu.com, aliexpress.com, craigslist.org, ebay.com (on the reload, or Camoufox when that fails too) |
-
-The one it doesn't get past is lacentrale.fr, whose DataDome shows both browsers a captcha; that scrape fails as blocked. LinkedIn company pages load its sign-up wall, which is a login requirement rather than bot detection.
-
-On fingerprint test pages it rates as a person: deviceandbrowserinfo.com "not a bot", rebrowser's detector all green, fingerprint.com bot "not detected" (no tampering, VM or incognito) and its scraping demo serves the protected data, Google's reCAPTCHA v3 demo scores it 0.9 (the highest it gives), BrowserScan and pixelscan's bot checks "Normal"/"Clear" on every row, whoer.net 100%, CreepJS 0% headless and 0% stealth. Anti-bot vendors change their checks often, so this is a snapshot; `just test-stealth` re-checks the core of it.
-
-## CI and releases
-
-GitHub Actions publishes multi-arch (amd64 + arm64) images to Docker Hub as `<DOCKERHUB_USERNAME>/crw-config-<name>`, signed with cosign:
-
-| workflow | when | does |
-|---|---|---|
-| `images.yml` | called by the two below, or by hand | Builds each arch on a native runner and pushes by digest, then joins the digests into multi-arch tags and signs them. |
-| `nightly.yml` | daily | Rebuilds what changed upstream and tags `nightly` and `nightly-YYYYMMDD`. |
-| `test.yml` | pull requests, pushes to `main` | Applies `patches/crw/` to crw's head and runs the unit tests they add (`scripts/test-patches.sh`), such as eBay's reload on a 403 and Camoufox reading eBay's empty shell again. Mock servers only, no live sites. |
-| `release.yml` | `v*` tag | Tags the images `<version>` and `latest`. Builds, signs and notarizes the disk image (`crw-mcp` plus a compose bundle pinned to those images), then publishes the draft release. |
-
-- **Skipping unchanged images:** `scripts/ci-plan.sh` pins each upstream to its current commit. Each image gets a key from its own inputs (its upstreams' commits, their `patches/`, its `docker/<name>/` files and the shared bake recipe) and is pushed as `src-<key>`. A run whose key already exists only retags, so a change to one image rebuilds only that image.
-- **Camoufox:** compiled only when its build inputs change, on a free x86_64 runner (about 2h10m per arch). The key (`camoufox_key` in `scripts/lib.sh`) hashes upstream's `browser/` tree minus its tests, `patches/camoufox/` and `build-camoufox.sh`. Upstream's README, docs and Python and TypeScript libraries change most days and don't trigger a compile. The zips are kept on Docker Hub as `crw-config-camoufox-dist:<key>-<arch>`. A manual Nightly or Images run with `force_camoufox` compiles anyway, to time the ccache, and leaves a zip already published for that key in place.
-- **crw build cache:** crw's cargo-chef dependency layer is cached per arch in `crw-config-buildcache` on Docker Hub, so a crw change that leaves its dependencies alone skips recompiling them.
-- **Chrome:** chrome-stealth's key includes Google's current Chrome stable version, so the nightly picks up each Chrome release.
-- **Secrets:** the swack-tools org secrets `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN` and `APPLE_*` (the same Developer ID setup as update-all). Without the Apple secrets, a release still ships, unsigned.
-
-To release, run `just release 0.1.0` on an up-to-date `main`.
-
-## What is still prebuilt
-
-Building these from source is out of scope: official base images (debian, ubuntu, node, rust, alpine), Google Chrome, Mozilla's build toolchains, the Camoufox font bundle, uBlock Origin, yt-dlp, and packages from distro, npm, cargo and PyPI registries.
-
-## Notes
-
-- **Version risk:** Camoufox `main` can be ahead of the version camofox-browser pins. If the camoufox tier fails, set `CAMOUFOX_REF` to the pinned tag (see `~/.crw/src/camofox-browser/Dockerfile`) and run `just update`.
-- **Remaining fingerprint tells:** Chrome has no WebGL (see above), so bot.sannysoft.com fails its two WebGL rows, BrowserScan rates the fingerprint 90% authentic rather than 100%, and iphey.com's check never finishes. The timezone (set by `up.sh`) and CPU count are the host's. fpscanner's `WEBDRIVER` test (on bot.incolumitas.com) fails because `navigator.webdriver` exists, as it does in every current Chrome.
-- **Behavior checks:** the pointer moves, but a scrape never types or fills in a form, so tests that score those (deviceandbrowserinfo.com's interaction test) have nothing to score.
-- **Crash reports:** camofox-browser's crash reporter is off (`CAMOFOX_CRASH_REPORT_ENABLED=false`).
-- **Licenses:** crw and SearXNG are AGPL, and the chrome-stealth image contains Google Chrome, which is under Google's Chrome terms of service. Building and running them locally is fine; publishing the images (`just push`) or offering the stack as a service carries their terms.
+| [Install from a release](docs/install.md) | Install, upgrade, manage, and remove the Mac release |
+| [Build from source](docs/build-from-source.md) | Build the stack, run it on Linux, and look up `just` recipes |
+| [How it works](docs/how-it-works.md) | Understand the services, the stealth settings, and each patch to CRW |
+| [Anti-bot results](docs/anti-bot-results.md) | See which sites and fingerprint tests it passes, and its known limits |
+| [CI and releases](docs/ci-and-releases.md) | Understand how images and releases get built and published |
+| [Contributing](CONTRIBUTING.md) | Send a change, run the tests, and check the docs |
 
 ## License
 
-This project is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE) (SPDX: `AGPL-3.0-or-later`). If you modify it and distribute it, or let people use your modified version over a network (for example, as a hosted MCP or scraping service), you must offer those users the complete source of your version under the same license.
+This project is licensed under the
+[GNU Affero General Public License v3.0 or later](LICENSE)
+(`AGPL-3.0-or-later`). If you modify it and distribute it, or let people use
+your modified version over a network, such as a hosted MCP or scraping service,
+you must offer those users the complete source of your version under the same
+license.
 
-The bundled upstream projects keep their own licenses: crw and SearXNG are AGPL-3.0, Camoufox is MPL-2.0, and Google Chrome is under Google's terms of service. The crw patches in `patches/crw/` are modifications of crw and are covered by its AGPL as well as this one.
+The bundled upstream projects keep their own licenses. CRW and SearXNG are
+AGPL-3.0, Camoufox is MPL-2.0, and Google Chrome is under Google's terms of
+service. The patches in `patches/crw/` are modifications of CRW, so CRW's AGPL
+covers them as well as this project's.
 
-Contributions are welcome under the [Contributor License Agreement](CLA.md); see [CONTRIBUTING.md](CONTRIBUTING.md).
+Building and running these projects locally is fine. Publishing the images with
+`just push` or offering the stack as a service carries their terms.
