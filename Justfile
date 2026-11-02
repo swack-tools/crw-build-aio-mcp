@@ -136,6 +136,10 @@ test-stealth:
 test-patches:
     scripts/test-patches.sh
 
+# Check the docs against the Google style with Vale (needs vale)
+lint-docs *files:
+    scripts/lint-docs.sh {{ files }}
+
 # Ask Claude Code to scrape through each tier via the crw MCP server
 test-stealth-claude:
     scripts/test-agent.sh claude
@@ -144,6 +148,6 @@ test-stealth-claude:
 test-stealth-codex:
     scripts/test-agent.sh codex
 
-# Ask agy to scrape through each tier via the crw MCP server (needs an allow rule, see README)
+# Ask agy to scrape through each tier via the crw MCP server (needs an allow rule, see docs/build-from-source.md)
 test-stealth-antigravity:
     scripts/test-agent.sh antigravity
