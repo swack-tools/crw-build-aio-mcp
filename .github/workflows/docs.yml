@@ -1,0 +1,48 @@
+name: Docs
+
+# Checks the docs against the Google developer documentation style with Vale
+# (scripts/lint-docs.sh). Any Vale warning or error fails the run.
+
+on:
+  pull_request:
+    paths:
+      - '**.md'
+      - release/README.txt
+      - .vale.ini
+      - .github/styles/**
+      - .github/workflows/docs.yml
+      - scripts/lint-docs.sh
+  push:
+    branches: [main]
+    paths:
+      - '**.md'
+      - release/README.txt
+      - .vale.ini
+      - .github/styles/**
+      - .github/workflows/docs.yml
+      - scripts/lint-docs.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VALE_VERSION: 3.25.1
+  VALE_SHA256: 4bf5c5176b682b1da0830f471584d3494f1c2e27ee3029e1ad6f6661d4962182
+
+jobs:
+  vale:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Vale
+        run: |
+          tarball="vale_${VALE_VERSION}_Linux_64-bit.tar.gz"
+          curl -fsSLO "https://github.com/errata-ai/vale/releases/download/v${VALE_VERSION}/$tarball"
+          echo "$VALE_SHA256  $tarball" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf "$tarball" -C "$HOME/.local/bin" vale
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Check the docs
+        run: scripts/lint-docs.sh

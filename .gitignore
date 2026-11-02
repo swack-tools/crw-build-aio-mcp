@@ -4,3 +4,5 @@
 /build/
 /.stamps/
 /.env
+/.github/styles/*
+!/.github/styles/config/
