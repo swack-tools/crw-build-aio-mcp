@@ -208,6 +208,10 @@ browsers are blocked or fail, and for files:
 - Chrome hands over a PDF or download that it opens from any other URL.
 - When the fallback gets a block page too, the scrape fails as blocked instead of
   returning that page.
+- When both browsers get Akamai's block page, there is no fallback, and the scrape
+  fails as blocked right away. An HTTP client has none of the sensor cookies that
+  Akamai's wall wants, and one more non-browser request is what Akamai holds against
+  your IP address.
 
 ### `revisit-walls.patch`
 
@@ -248,6 +252,12 @@ following:
 - At least eight words, with none over 60 characters.
 - Mostly the script's letters, for languages written without spaces, such as
   Chinese, Japanese, and Thai.
+
+### `zz-runtime-apt-upgrade.patch`
+
+CRW's runtime base is pinned by digest, so its layer now runs `apt-get upgrade` to
+take Debian's security fixes. CI passes the ISO week as `REFRESH`, which reruns that
+layer past the build cache once a week.
 
 ## Ports
 

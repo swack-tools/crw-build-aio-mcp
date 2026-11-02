@@ -1,0 +1,16 @@
+diff --git a/Dockerfile b/Dockerfile
+index 41ce10c7..2eb4a19a 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -143,7 +143,10 @@ RUN set -eux; \
+ # ---- runtime (unchanged) ----------------------------------------------------
+ FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
+ 
+-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
++# crw-config: the base is pinned by digest, so take the distro's security fixes
++# here. REFRESH changes weekly, which reruns this layer past the cache.
++ARG REFRESH
++RUN apt-get update && apt-get upgrade -y && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+ 
+ # Copy whatever binaries the builder produced (all three for the public image;
+ # just crw-server for the prod engine build). A directory copy tolerates the

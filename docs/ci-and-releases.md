@@ -8,7 +8,7 @@ as `<DOCKERHUB_USERNAME>/crw-config-<NAME>`, signed with cosign.
 | Workflow | When it runs | What it does |
 |---|---|---|
 | `images.yml` | When `nightly.yml` or `release.yml` calls it, or by hand | Builds each architecture on a native runner and pushes by digest, and then joins the digests into multi-architecture tags and signs them. |
-| `nightly.yml` | Daily | Rebuilds what changed upstream and tags `nightly` and `nightly-YYYYMMDD`. |
+| `nightly.yml` | Daily | Rebuilds what changed upstream, and every image on the first run of each week, and tags `nightly` and `nightly-YYYYMMDD`. |
 | `test.yml` | On pull requests and pushes to `main` | Applies `patches/crw/` to CRW's head and runs the unit tests that they add (`scripts/test-patches.sh`), such as eBay's reload on a 403 and Camoufox reading eBay's empty shell again. It uses only mock servers, no live sites. |
 | `docs.yml` | On pull requests and pushes to `main` that change docs | Runs `scripts/lint-docs.sh`, which checks the docs against the Google style with Vale. |
 | `release.yml` | On a `v*` tag | Tags the images `<VERSION>` and `latest`. Builds, signs, and notarizes the disk image (`crw-mcp` plus a compose bundle pinned to those images), and then publishes the draft release. |
@@ -20,6 +20,9 @@ as `<DOCKERHUB_USERNAME>/crw-config-<NAME>`, signed with cosign.
   `patches/`, its `docker/<NAME>/` files, and the shared bake recipe. The image is
   pushed as `src-<KEY>`. A run whose key already exists only retags, so a change to
   one image rebuilds only that image.
+- **Weekly refresh.** Every key also includes the ISO week, so the first run of each
+  week rebuilds every image and picks up new base images and distro packages even if
+  upstream was quiet. CI doesn't recompile Camoufox for this.
 - **Camoufox.** CI compiles it only when its build inputs change, on a free x86_64 runner,
   in about 2 hours and 10 minutes per architecture. The key (`camoufox_key` in
   `scripts/lib.sh`) hashes upstream's `browser/` tree minus its tests,
