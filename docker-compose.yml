@@ -28,20 +28,19 @@ services:
       - CRW_RENDERER__CHROME_POOL__SIZE=4
       - CRW_RENDERER__IMPERSONATED__ENABLED=true
       - CRW_RENDERER__CAMOUFOX__BASE_URL=http://camofox:9377
-      # A scrape that sets nothing tries the impersonated-http tier first
-      # (~0.5s on a server-rendered page) and climbs to stealth Chrome, then
-      # Camoufox, when the answer is a block page, an error or a page that
-      # looks unfinished (upstream's auto arm; patches/crw/
-      # auto-impersonated-first.patch makes its first request the
-      # Chrome-impersonating client, not reqwest). Upstream's auto tries
-      # Lightpanda as the JS renderer, which has no stealth and answers most
-      # pages, so it is left out: `chrome` makes Chrome the first browser.
+      # Auto mode's JS renderer is stealth Chrome, then Camoufox when Chrome
+      # is blocked. Upstream's auto tries Lightpanda first, which has no
+      # stealth and answers most pages, so it is left out.
       - CRW_RENDERER__MODE=chrome
       - CRW_RENDERER__CAMOUFOX__INCLUDE_IN_AUTO=true
-      # CRW_RENDERER__RENDER_JS_DEFAULT is left unset on purpose. Set it to
-      # true to render every page in a browser (8-18s each): a page that fills
-      # itself in after load (a bot check's verdict, say) then never comes
-      # back as its empty shell. A request can also set renderJs or renderer.
+      # Render every page in a browser unless the request says renderJs:false.
+      # Upstream's auto starts with plain HTTP and only renders pages that
+      # look unfinished, so a page that fills itself in after load (a bot
+      # check's verdict, say) comes back as its empty shell.
+      # CRW_RENDER_JS_DEFAULT=auto in .env opts into that auto mode instead:
+      # about 0.5s a page over impersonated-http rather than 8-18s in a
+      # browser, at that cost (patches/crw/render-js-auto.patch).
+      - CRW_RENDERER__RENDER_JS_DEFAULT=${CRW_RENDER_JS_DEFAULT:-true}
       # Pages load as they would for a person. Upstream blocks images, fonts,
       # media and analytics to save time, and pages can tell (a missing image
       # has no size; a bot check's script may be on the blocked list).

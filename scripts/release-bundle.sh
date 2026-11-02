@@ -69,6 +69,12 @@ CRW_HOST_PORT=3000
 CRW_BIND_ADDRESS=127.0.0.1
 
 SEARXNG_SECRET_KEY=
+
+# true (the default) renders every page in a browser, 8-18s a page. auto fetches
+# over impersonated-http first, about 0.5s, and renders only pages that look
+# blocked or unfinished, so content a page adds with JavaScript after load can
+# be missing. Bot checks' verdicts are one such case.
+# CRW_RENDER_JS_DEFAULT=true
 EOF
 
 cp "$ROOT/release/install.sh" "$out/"

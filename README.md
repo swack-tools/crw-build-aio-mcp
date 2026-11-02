@@ -28,6 +28,12 @@ how MCP clients call it, tries each tier until one gets the page:
 1. If every tier is blocked, the scrape fails as blocked instead of returning the
    block page.
 
+To trade some of that for speed, set `CRW_RENDER_JS_DEFAULT=auto` in `.env`. A
+scrape then starts with `impersonated-http`, about 0.5 seconds a page instead of
+8 to 18, and renders only the pages that look blocked or unfinished. Content that
+a page adds with JavaScript after load, such as a bot check's verdict, can be
+missing.
+
 Files, such as PDFs, go straight to `impersonated-http`. For the sites that
 this order got past when last checked, see
 [Anti-bot results](docs/anti-bot-results.md).

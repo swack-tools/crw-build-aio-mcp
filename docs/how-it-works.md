@@ -79,7 +79,7 @@ These settings apply to a scrape that sets nothing, as an MCP client sends it.
 |---|---|---|
 | `CRW_RENDERER__MODE=chrome` | Chrome goes first. | Upstream's `auto` mode tries Lightpanda first, which has no stealth and answers most pages. Lightpanda is neither built nor started. |
 | `CRW_RENDERER__CAMOUFOX__INCLUDE_IN_AUTO=true` | CRW tries Camoufox when Chrome is blocked. | |
-| `CRW_RENDERER__RENDER_JS_DEFAULT=true` | Every page renders in a browser. `renderJs: false` still skips the browser. | Upstream starts with plain HTTP and only renders pages that look unfinished, so a page that fills itself in after load, such as a bot check's verdict, came back as its empty shell. |
+| `CRW_RENDERER__RENDER_JS_DEFAULT=true` | Every page renders in a browser. `renderJs: false` still skips the browser. Set `CRW_RENDER_JS_DEFAULT=auto` in `.env` to opt into auto mode. | Upstream starts with plain HTTP and only renders pages that look unfinished, so a page that fills itself in after load, such as a bot check's verdict, came back as its empty shell. Auto mode takes about 0.5 seconds a page instead of 8 to 18, at that cost. |
 | `CRW_RENDERER__CHROME_INTERCEPT_RESOURCES=false` | Pages load images, fonts, and analytics as they do for a person. | Upstream blocks them to save time, and pages can tell. |
 | `CRW_RENDERER__CHROME_CHALLENGE_MAX_RETRIES=8` and `CRW_RENDERER__CHROME_NAV_BUDGET_MS=40000` | An anti-bot challenge gets up to 24 seconds to clear. | Upstream checks once, inside a 12-second page budget. |
 | `CRW_RENDERER__CHROME_OUTBOUND_CHECK=false` | Chrome's requests go straight out, as in a person's browser. Chrome's own Local Network Access still asks before a public page reaches a private address. | Upstream pauses each request to check it against private network ranges, which breaks some anti-bot scripts. Kasada's cleared one cold visit in four with the check and every one without it. |
@@ -212,6 +212,22 @@ browsers are blocked or fail, and for files:
   fails as blocked right away. An HTTP client has none of the sensor cookies that
   Akamai's wall wants, and one more non-browser request is what Akamai holds against
   your IP address.
+
+### `render-js-auto.patch`
+
+Lets `render_js_default` be `auto`, so `CRW_RENDER_JS_DEFAULT=auto` opts into
+auto mode. CRW also takes an empty value as auto, and `true` and `false` keep
+working. In auto mode:
+
+- The first request goes through the `impersonated-http` client instead of
+  `reqwest`, whose TLS handshake is a bot's, as `render-browser-first.patch`
+  explains.
+- A named vendor's block page that comes back with status 200, such as Akamai's
+  "Reference Error" page, goes to a browser instead of coming back as the page.
+
+Content that a page adds with JavaScript after load can be missing in auto mode,
+because CRW renders only the pages whose HTML looks blocked or unfinished. Two of
+the five bot checks in `just test-stealth` fail in auto mode for this reason.
 
 ### `revisit-walls.patch`
 

@@ -1,0 +1,158 @@
+diff --git a/crates/crw-core/src/config.rs b/crates/crw-core/src/config.rs
+index 3101f02..6e9cbc3 100644
+--- a/crates/crw-core/src/config.rs
++++ b/crates/crw-core/src/config.rs
+@@ -899,8 +899,10 @@ pub struct RendererConfig {
+     /// If set, applies to every request that doesn't specify `renderJs` explicitly.
+     /// `Some(true)` = force JS rendering; `Some(false)` = skip JS; `None` = auto-detect.
+     ///
+-    /// Accepts the `force_js` alias for backward compatibility.
+-    #[serde(default, alias = "force_js")]
++    /// Accepts the `force_js` alias for backward compatibility. `"auto"`, or an
++    /// empty or whitespace-only value, means `None`, so a deployment can choose
++    /// auto-detect from an env var it can't unset (a compose override file).
++    #[serde(default, alias = "force_js", deserialize_with = "deserialize_opt_bool_or_auto")]
+     pub render_js_default: Option<bool>,
+     #[serde(default)]
+     pub lightpanda: Option<CdpEndpoint>,
+@@ -2087,6 +2089,35 @@ where
+     })
+ }
+ 
++/// Deserializer for an optional bool that also accepts `"auto"`, an empty
++/// string or a whitespace-only string as `None`, and `"true"`/`"false"` as
++/// strings (an env value `try_parsing` didn't turn into a bool).
++///
++/// Applied via `#[serde(default, deserialize_with = ...)]`, so a missing key is
++/// `None` from `Default` and only a present value reaches this function.
++fn deserialize_opt_bool_or_auto<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
++where
++    D: serde::Deserializer<'de>,
++{
++    #[derive(Deserialize)]
++    #[serde(untagged)]
++    enum BoolOrString {
++        Bool(bool),
++        Str(String),
++    }
++    match BoolOrString::deserialize(deserializer)? {
++        BoolOrString::Bool(b) => Ok(Some(b)),
++        BoolOrString::Str(s) => match s.trim().to_ascii_lowercase().as_str() {
++            "" | "auto" => Ok(None),
++            "true" => Ok(Some(true)),
++            "false" => Ok(Some(false)),
++            other => Err(serde::de::Error::custom(format!(
++                "render_js_default: expected true, false or \"auto\", got {other:?}"
++            ))),
++        },
++    }
++}
++
+ #[derive(Debug, Clone, Default, Deserialize)]
+ pub struct AuthConfig {
+     #[serde(default, deserialize_with = "deserialize_string_vec")]
+@@ -2578,6 +2609,35 @@ mod tests {
+         assert_eq!(cfg.render_js_default, Some(true));
+     }
+ 
++    #[test]
++    fn render_js_default_accepts_auto() {
++        for (toml_src, want) in [
++            ("render_js_default = true", Some(true)),
++            ("render_js_default = false", Some(false)),
++            (r#"render_js_default = "auto""#, None),
++            (r#"render_js_default = """#, None),
++            (r#"render_js_default = "  ""#, None),
++            (r#"render_js_default = "true""#, Some(true)),
++            ("", None),
++        ] {
++            let cfg: RendererConfig = toml::from_str(toml_src).unwrap();
++            assert_eq!(cfg.render_js_default, want, "{toml_src:?}");
++        }
++        assert!(toml::from_str::<RendererConfig>(r#"render_js_default = "maybe""#).is_err());
++    }
++
++    #[test]
++    fn env_var_render_js_default_auto() {
++        let _g = ENV_LOCK.lock().unwrap();
++        for (v, want) in [("auto", None), ("", None), ("  ", None), ("true", Some(true)), ("false", Some(false))] {
++            clear_renderer_env();
++            unsafe { std::env::set_var("CRW_RENDERER__RENDER_JS_DEFAULT", v) };
++            let cfg = AppConfig::load();
++            clear_renderer_env();
++            assert_eq!(cfg.unwrap().renderer.render_js_default, want, "{v:?}");
++        }
++    }
++
+     #[test]
+     fn render_js_default_direct_field() {
+         let cfg: RendererConfig = toml::from_str("render_js_default = false").unwrap();
+diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
+index c6c0c27..a960dd2 100644
+--- a/crates/crw-renderer/src/lib.rs
++++ b/crates/crw-renderer/src/lib.rs
+@@ -2719,8 +2719,11 @@ impl FallbackRenderer {
+                 // sites that reject reqwest's TLS/UA fingerprint succeed via a
+                 // real Chromium navigation. Bench analysis: 10/147 false
+                 // "unreachable" + 5/147 "http_502" map to this branch.
++                // The first request is the Chrome-impersonating client (see
++                // `fallback_http_fetcher`), not reqwest: it is the request an
++                // anti-bot vendor sees before any browser visit.
+                 let fetched = self
+-                    .http_fetcher_for_request()?
++                    .fallback_http_fetcher()?
+                     .fetch(url, headers, None, deadline)
+                     .await;
+                 // Chrome-impersonation hop on a TRANSPORT failure
+@@ -2841,7 +2844,15 @@ impl FallbackRenderer {
+                 let is_generic_bot_wall =
+                     detector::looks_like_generic_bot_wall(&result.html, result.truncated);
+                 let is_cf_challenge = detector::looks_like_cloudflare_challenge(&result.html);
+-                let is_blocked = challenge_header_signal || is_cf_challenge || is_generic_bot_wall;
++                // A named vendor's wall served with 200 (Akamai's "Reference
++                // Error" page, say) counts too, as `vendor_wall` does in the
++                // forced-JS arm, so it goes to a browser instead of coming back
++                // as the page.
++                let is_vendor_wall = detector::looks_like_vendor_block(&result.html).is_some();
++                let is_blocked = challenge_header_signal
++                    || is_cf_challenge
++                    || is_generic_bot_wall
++                    || is_vendor_wall;
+                 let is_auth_blocked = soft_block_warrants_js(result.status_code, &result.html);
+                 // Post-fetch thin-content trigger: HTTP returned 2xx but the
+                 // body has effectively no extractable text. Catches sites whose
+@@ -6411,6 +6422,34 @@ mod tests {
+         }
+     }
+ 
++    /// Auto mode (no `renderJs`): a named vendor's wall that HTTP gets with a
++    /// 200 goes to the browser instead of coming back as the page.
++    #[tokio::test]
++    async fn auto_vendor_wall_200_goes_to_browser() {
++        let akamai = "<html><body><h1>adidas</h1>\
++                      <p>Reference Error: 0.333b2f17.1793287426.7e59a54</p></body></html>";
++        let article = format!(
++            "<html><body><article><h1>Real page</h1><p>{}</p></article></body></html>",
++            "Genuine prose that no detector could mistake for an interstitial. ".repeat(20)
++        );
++        let chrome = Arc::new(MockFetcher {
++            name: "chrome",
++            behavior: MockBehavior::Ok(article),
++        }) as Arc<dyn PageFetcher>;
++        let mut r = make_renderer_with_mocks(vec![chrome]);
++        let http = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        r.http = Arc::new(CountingBody {
++            calls: http.clone(),
++            body: akamai.to_string(),
++        });
++        let out = r
++            .fetch("https://example.com", &HashMap::new(), None, None, None, tdl())
++            .await
++            .expect("the browser's page");
++        assert_eq!(http.load(std::sync::atomic::Ordering::SeqCst), 1);
++        assert!(out.html.contains("Real page"), "{}", out.html);
++    }
++
+     /// An HTTP tier that answers every URL with `body` and counts its calls.
+     struct CountingBody {
+         calls: Arc<std::sync::atomic::AtomicUsize>,
