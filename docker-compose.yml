@@ -127,11 +127,17 @@ services:
       - TZ=${CRW_TZ:-UTC}
     # Reaps Chrome's exited child processes.
     init: true
-    shm_size: 2g
-    mem_limit: 3g
-    memswap_limit: 3g
-    tmpfs:
-      - /tmp:size=512m
+    # Chrome's profile (start.sh makes it under /tmp) stays on the container's
+    # disk. Upstream mounts /tmp as a 512m tmpfs, which is RAM charged to the
+    # container: Chrome's caches filled it in about two days of steady
+    # scraping, Chrome then hit ENOSPC, and its DevTools sessions hung with
+    # it. start.sh caps the two caches that grow fastest.
+    # 512m of shared memory is Docker's usual floor for Chrome; it used none
+    # of upstream's 2g (df -h in the container). 1536m held every page in
+    # test-stealth. Raise either for a page that crashes a tab or runs out.
+    shm_size: ${CHROME_SHM_SIZE:-512m}
+    mem_limit: ${CHROME_MEM_LIMIT:-1536m}
+    memswap_limit: ${CHROME_MEM_LIMIT:-1536m}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9222/json/version"]
       interval: 15s

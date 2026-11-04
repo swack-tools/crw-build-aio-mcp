@@ -69,6 +69,11 @@ CRW_HOST_PORT=3000
 CRW_BIND_ADDRESS=127.0.0.1
 
 SEARXNG_SECRET_KEY=
+
+# chrome-stealth's shared memory and memory limit (uncomment to raise them for
+# a page that crashes a tab or runs out of memory)
+# CHROME_SHM_SIZE=512m
+# CHROME_MEM_LIMIT=1536m
 EOF
 
 cp "$ROOT/release/install.sh" "$out/"

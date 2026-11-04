@@ -28,7 +28,12 @@ Xvfb "$DISPLAY" -screen 0 "$SCREEN" -nolisten tcp -noreset &
 for _ in $(seq 100); do [[ -S /tmp/.X11-unix/X99 ]] && break; sleep 0.1; done
 xprop -root -f _NET_WORKAREA 32c -set _NET_WORKAREA "0, 0, $width, $((height - TASKBAR))"
 
+# On the container's disk, not a tmpfs (see docker-compose.yml).
 profile="$(mktemp -d)"
+# Chrome's HTTP and media caches, which grow fastest (142 MB in an hour of
+# steady scraping). The rest of the profile grows slowly and stays on disk.
+DISK_CACHE="${CHROME_DISK_CACHE_BYTES:-33554432}"
+MEDIA_CACHE="${CHROME_MEDIA_CACHE_BYTES:-8388608}"
 
 node "$(dirname "$0")/chrome-stealth-relay.js" "$PORT" $((PORT + 1)) &
 # Moves the pointer over each page, and clicks Cloudflare's Turnstile checkbox
@@ -57,6 +62,8 @@ node "$(dirname "$0")/chrome-stealth-pointer.js" $((PORT + 1)) "$width" $((heigh
   --disable-background-timer-throttling \
   --disable-backgrounding-occluded-windows \
   --disable-renderer-backgrounding \
+  --disk-cache-size="$DISK_CACHE" \
+  --media-cache-size="$MEDIA_CACHE" \
   "$@" \
   about:blank &
 

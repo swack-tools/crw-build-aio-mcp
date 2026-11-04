@@ -61,6 +61,12 @@ Building these from source is out of scope:
 need the clones. It started from `docker-compose.yml` and
 `docker-compose.stealth.yml` in CRW's repository, and it keeps their hardening:
 memory and process limits, read-only root filesystems, and no capabilities.
+One exception: `chrome-stealth` keeps Chrome's profile on the container's disk
+instead of in a `/tmp` tmpfs, because a tmpfs is memory, and Chrome's caches
+filled upstream's 512 MB in about two days of steady scraping. Chrome then
+had no space to write, and its DevTools sessions hung. `start.sh` caps the HTTP
+and media caches, and `CHROME_SHM_SIZE` and `CHROME_MEM_LIMIT` in `.env` raise
+the container's shared memory and memory limit for a page that needs more.
 
 It runs the local images without upstream's Lightpanda and browserless services.
 It adds the `camofox` service, which CRW reaches through
