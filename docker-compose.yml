@@ -38,6 +38,16 @@ services:
       # look unfinished, so a page that fills itself in after load (a bot
       # check's verdict, say) comes back as its empty shell.
       - CRW_RENDERER__RENDER_JS_DEFAULT=true
+      # Rendering every page costs a second or more over plain HTTP (a request
+      # can still set renderer: impersonated-http, or renderJs: false). Without
+      # these two settings it cost 8s more on many pages: after a page loads,
+      # crw polls for a main/article/#content element for up to 8s before it
+      # reads the page, and a page without one (example.com, bot.sannysoft.com)
+      # always waited the full 8s. FAST_READY reads the page once its text is
+      # there and the network has settled; the 3s ceiling bounds a page that
+      # never settles. An anti-bot wall still gets its 24s below (issue #18).
+      - CRW_RENDERER__CHROME_FAST_READY=true
+      - CRW_RENDERER__CHROME_SPA_SELECTOR_MAX_MS=3000
       # Pages load as they would for a person. Upstream blocks images, fonts,
       # media and analytics to save time, and pages can tell (a missing image
       # has no size; a bot check's script may be on the blocked list).

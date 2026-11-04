@@ -32,6 +32,12 @@ Files, such as PDFs, go straight to `impersonated-http`. For the sites that
 this order got past when last checked, see
 [Anti-bot results](docs/anti-bot-results.md).
 
+Rendering in Chrome costs a second or more per page. When speed matters more
+than stealth, set `renderer: "impersonated-http"` to fetch the page without a
+browser in well under a second, or `renderJs: false` to use plain HTTP. Either
+returns a page that draws its content with JavaScript, such as a shop's product
+grid, as an empty shell, so check that the result carries what you need.
+
 ## Get started
 
 You need an Apple silicon Mac with Docker running, either OrbStack or Docker
