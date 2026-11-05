@@ -1,5 +1,99 @@
+diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
+index bceb404..94a1dc0 100644
+--- a/crates/crw-renderer/src/cdp.rs
++++ b/crates/crw-renderer/src/cdp.rs
+@@ -2211,6 +2211,13 @@ fn is_challenge_page(html: &str) -> bool {
+         || lower.contains("attention required")
+ }
+ 
++/// Is `document.contentType` one a page is read from? Markup, text and data
++/// are; a PDF, an image or a video is not.
++fn is_page_content_type(content_type: &str) -> bool {
++    let ct = content_type.to_ascii_lowercase();
++    ct.starts_with("text/") || ct.contains("html") || ct.contains("xml") || ct.contains("json")
++}
++
+ /// Detect LightPanda/Chrome navigation error pages.
+ fn detect_navigation_error(html: &str) -> Option<String> {
+     if html.len() > 2000 {
+@@ -3548,6 +3555,14 @@ impl CdpRenderer {
+                 .get("errorText")
+                 .and_then(|value| value.as_str())
+             {
++                // Chrome aborts a navigation that turns into a download (a file
++                // served as an attachment, or a type it has no viewer for).
++                // There is no page; the HTTP fetch after the ladder takes it.
++                if error_text == "net::ERR_ABORTED" {
++                    return Err(CrwError::UnsupportedContentType(format!(
++                        "download ({error_text})"
++                    )));
++                }
+                 return Err(CrwError::RendererError(format!(
+                     "Navigation failed: {error_text}"
+                 )));
+@@ -3627,6 +3642,23 @@ impl CdpRenderer {
+             } else {
+                 status_code
+             };
++            // A document that is not a web page (a PDF whose URL does not end
++            // in .pdf, an image) opens in Chrome's viewer, which has nothing to
++            // read. Say so: the ladder stops and the HTTP fetch after it, which
++            // parses PDFs, takes over.
++            let content_type = conn
++                .send_recv(
++                    "Runtime.evaluate",
++                    serde_json::json!({ "expression": "document.contentType", "returnByValue": true }),
++                    Some(&session_id),
++                    Duration::from_secs(2),
++                )
++                .await
++                .ok()
++                .and_then(|v| v.pointer("/result/value").and_then(|s| s.as_str()).map(str::to_owned));
++            if let Some(ct) = content_type.filter(|ct| !is_page_content_type(ct)) {
++                return Err(CrwError::UnsupportedContentType(ct));
++            }
+             // Screenshot capture runs AFTER the page-load budget race resolves,
+             // with its own timeout. A full-page capture of a heavy page must not
+             // be cancelled by the nav budget (which closes the WS mid-capture and
+@@ -5190,7 +5222,7 @@ mod tests {
+ 
+     // --- is_challenge_page ------------------------------------------------------
+ 
+-    use super::is_challenge_page;
++    use super::{is_challenge_page, is_page_content_type};
+ 
+     #[test]
+     fn challenge_page_detects_cloudflare_just_a_moment() {
+@@ -5236,6 +5268,27 @@ mod tests {
+         ));
+     }
+ 
++    #[test]
++    fn page_content_types() {
++        for ct in [
++            "text/html",
++            "application/xhtml+xml",
++            "text/plain",
++            "application/json",
++            "image/svg+xml",
++        ] {
++            assert!(is_page_content_type(ct), "{ct}");
++        }
++        for ct in [
++            "application/pdf",
++            "image/png",
++            "video/mp4",
++            "application/octet-stream",
++        ] {
++            assert!(!is_page_content_type(ct), "{ct}");
++        }
++    }
++
+     #[test]
+     fn challenge_page_detects_akamai_interstitial() {
+         // marriott.com's.
 diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
-index 1826152..c6c0c27 100644
+index 89ec023..bb9e4ea 100644
 --- a/crates/crw-renderer/src/lib.rs
 +++ b/crates/crw-renderer/src/lib.rs
 @@ -567,11 +567,7 @@ fn demote_wall_to_ladder_failure(
@@ -71,7 +165,7 @@ index 1826152..c6c0c27 100644
  /// An HTTP-tier error that says the body is a document no other client can turn
  /// into a page: not a web page at all (`UnsupportedContentType`: a .docx ZIP, an
  /// image), or over the size cap (every cap site's message starts with
-@@ -1526,6 +1564,28 @@ impl FallbackRenderer {
+@@ -1531,6 +1569,28 @@ impl FallbackRenderer {
          })
      }
  
@@ -100,7 +194,7 @@ index 1826152..c6c0c27 100644
      /// Warm per-proxy fetcher cache shared by the two HTTP-shaped tiers: reuse
      /// a client previously bound to the same `REQUEST_PROXY` entry, else build
      /// one via `build` (fail-closed) and remember it. The build runs OUTSIDE
-@@ -2402,7 +2462,51 @@ impl FallbackRenderer {
+@@ -2416,7 +2476,52 @@ impl FallbackRenderer {
                  Ok(r)
              }
              Some(true) => {
@@ -126,6 +220,7 @@ index 1826152..c6c0c27 100644
 +                            wait_for_ms,
 +                            requested_renderer,
 +                            cloak_attempted,
++                            cloak_permitted,
 +                            deadline,
 +                        )
 +                        .await;
@@ -153,7 +248,7 @@ index 1826152..c6c0c27 100644
                  // An HTTP-layer failure is not terminal here either: the auto arm
                  // escalates on it (bench: 10/147 false "unreachable" + 5/147
                  // "http_502" recover via a real Chromium navigation), and a
-@@ -2412,7 +2516,7 @@ impl FallbackRenderer {
+@@ -2426,7 +2531,7 @@ impl FallbackRenderer {
                  // arm — never reached the browser on an origin that rejects
                  // reqwest's TLS fingerprint.
                  let mut http_result = match self
@@ -162,7 +257,7 @@ index 1826152..c6c0c27 100644
                      .fetch(url, headers, None, deadline)
                      .await
                  {
-@@ -2430,34 +2534,38 @@ impl FallbackRenderer {
+@@ -2444,35 +2549,39 @@ impl FallbackRenderer {
                              error = %LogErr(&e),
                              "HTTP fetch failed, escalating to JS renderer",
                          );
@@ -173,6 +268,7 @@ index 1826152..c6c0c27 100644
 -                                wait_for_ms,
 -                                requested_renderer,
 -                                cloak_attempted,
+-                                cloak_permitted,
 -                                deadline,
 -                            )
 -                            .await
@@ -201,6 +297,7 @@ index 1826152..c6c0c27 100644
 +                                    wait_for_ms,
 +                                    requested_renderer,
 +                                    cloak_attempted,
++                                    cloak_permitted,
 +                                    deadline,
 +                                )
 +                                .await
@@ -228,7 +325,7 @@ index 1826152..c6c0c27 100644
                      }
                      Err(e) => return Err(e),
                  };
-@@ -2508,17 +2616,23 @@ impl FallbackRenderer {
+@@ -2523,18 +2632,24 @@ impl FallbackRenderer {
                      // debug and because the request is billed either way.
                      let is_auth_blocked =
                          soft_block_warrants_js(http_result.status_code, &http_result.html);
@@ -240,6 +337,7 @@ index 1826152..c6c0c27 100644
 -                            wait_for_ms,
 -                            requested_renderer,
 -                            cloak_attempted,
+-                            cloak_permitted,
 -                            deadline,
 -                        )
 -                        .await;
@@ -254,6 +352,7 @@ index 1826152..c6c0c27 100644
 +                                    wait_for_ms,
 +                                    requested_renderer,
 +                                    cloak_attempted,
++                                    cloak_permitted,
 +                                    deadline,
 +                                )
 +                                .await;
@@ -263,7 +362,7 @@ index 1826152..c6c0c27 100644
                      // A ladder result that is nothing but a wall must not
                      // displace a usable HTTP body. This is the preference the
                      // old error carried implicitly; see the helper.
-@@ -2549,10 +2663,7 @@ impl FallbackRenderer {
+@@ -2565,10 +2680,7 @@ impl FallbackRenderer {
                          Err(e)
                              if screenshot_requested()
                                  || is_hard_pinned
@@ -275,7 +374,7 @@ index 1826152..c6c0c27 100644
                          {
                              Err(e)
                          }
-@@ -4030,6 +4141,14 @@ impl FallbackRenderer {
+@@ -4054,6 +4166,14 @@ impl FallbackRenderer {
                          }
                      });
                  }
@@ -290,7 +389,7 @@ index 1826152..c6c0c27 100644
                  Err(e) => {
                      // A replayed hedge leg was already logged as `hedge leg failed`.
                      if !was_replayed {
-@@ -4779,6 +4898,12 @@ impl FallbackRenderer {
+@@ -4819,6 +4939,12 @@ impl FallbackRenderer {
              // tier failed outright, now get the verdict instead of a 502.
              if detector::looks_like_generic_bot_wall(&result.html, result.truncated) {
                  result.block = Some(unclearable_wall_verdict());
@@ -303,7 +402,7 @@ index 1826152..c6c0c27 100644
              }
              Ok(result)
          } else {
-@@ -6145,6 +6270,196 @@ mod tests {
+@@ -6190,6 +6316,196 @@ mod tests {
          );
      }
  
@@ -500,7 +599,7 @@ index 1826152..c6c0c27 100644
      /// An HTTP tier whose origin refused a body over the size cap.
      struct OversizeBody;
      #[async_trait::async_trait]
-@@ -6173,10 +6488,11 @@ mod tests {
+@@ -6218,10 +6534,11 @@ mod tests {
  
      /// Same rule as the binary body, for the size cap: the prod shape is a
      /// 52 to 78 MB PDF, which chrome aborts as a download (`net::ERR_ABORTED`)
@@ -514,97 +613,3 @@ index 1826152..c6c0c27 100644
              let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
              let js = Arc::new(CountingFetcher {
                  name: "chrome",
-diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
-index 6f9701a..e2d2bef 100644
---- a/crates/crw-renderer/src/cdp.rs
-+++ b/crates/crw-renderer/src/cdp.rs
-@@ -2211,6 +2211,13 @@ fn is_challenge_page(html: &str) -> bool {
-         || lower.contains("attention required")
- }
- 
-+/// Is `document.contentType` one a page is read from? Markup, text and data
-+/// are; a PDF, an image or a video is not.
-+fn is_page_content_type(content_type: &str) -> bool {
-+    let ct = content_type.to_ascii_lowercase();
-+    ct.starts_with("text/") || ct.contains("html") || ct.contains("xml") || ct.contains("json")
-+}
-+
- /// Detect LightPanda/Chrome navigation error pages.
- fn detect_navigation_error(html: &str) -> Option<String> {
-     if html.len() > 2000 {
-@@ -3473,6 +3480,14 @@ impl CdpRenderer {
-                 .get("errorText")
-                 .and_then(|value| value.as_str())
-             {
-+                // Chrome aborts a navigation that turns into a download (a file
-+                // served as an attachment, or a type it has no viewer for).
-+                // There is no page; the HTTP fetch after the ladder takes it.
-+                if error_text == "net::ERR_ABORTED" {
-+                    return Err(CrwError::UnsupportedContentType(format!(
-+                        "download ({error_text})"
-+                    )));
-+                }
-                 return Err(CrwError::RendererError(format!(
-                     "Navigation failed: {error_text}"
-                 )));
-@@ -3552,6 +3567,23 @@ impl CdpRenderer {
-             } else {
-                 status_code
-             };
-+            // A document that is not a web page (a PDF whose URL does not end
-+            // in .pdf, an image) opens in Chrome's viewer, which has nothing to
-+            // read. Say so: the ladder stops and the HTTP fetch after it, which
-+            // parses PDFs, takes over.
-+            let content_type = conn
-+                .send_recv(
-+                    "Runtime.evaluate",
-+                    serde_json::json!({ "expression": "document.contentType", "returnByValue": true }),
-+                    Some(&session_id),
-+                    Duration::from_secs(2),
-+                )
-+                .await
-+                .ok()
-+                .and_then(|v| v.pointer("/result/value").and_then(|s| s.as_str()).map(str::to_owned));
-+            if let Some(ct) = content_type.filter(|ct| !is_page_content_type(ct)) {
-+                return Err(CrwError::UnsupportedContentType(ct));
-+            }
-             // Screenshot capture runs AFTER the page-load budget race resolves,
-             // with its own timeout. A full-page capture of a heavy page must not
-             // be cancelled by the nav budget (which closes the WS mid-capture and
-@@ -4934,7 +4966,7 @@ mod tests {
- 
-     // --- is_challenge_page ------------------------------------------------------
- 
--    use super::is_challenge_page;
-+    use super::{is_challenge_page, is_page_content_type};
- 
-     #[test]
-     fn challenge_page_detects_cloudflare_just_a_moment() {
-@@ -4980,6 +5012,27 @@ mod tests {
-         ));
-     }
- 
-+    #[test]
-+    fn page_content_types() {
-+        for ct in [
-+            "text/html",
-+            "application/xhtml+xml",
-+            "text/plain",
-+            "application/json",
-+            "image/svg+xml",
-+        ] {
-+            assert!(is_page_content_type(ct), "{ct}");
-+        }
-+        for ct in [
-+            "application/pdf",
-+            "image/png",
-+            "video/mp4",
-+            "application/octet-stream",
-+        ] {
-+            assert!(!is_page_content_type(ct), "{ct}");
-+        }
-+    }
-+
-     #[test]
-     fn challenge_page_detects_akamai_interstitial() {
-         // marriott.com's.
