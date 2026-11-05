@@ -9,16 +9,20 @@
 #    got it: chrome means Chrome got through (on its reload, if eBay turned
 #    the fresh profile away), camoufox means the fallback did. Informational,
 #    since listings end; set EBAY_URL to check another, or EBAY_URL= to skip.
+# 5. Three DataDome sites (Hermès's sneakers, Foot Locker's release calendar,
+#    Etsy) with the default scrape: the page, or DataDome's block page.
+#    Informational; set DATADOME_URLS to check others, or DATADOME_URLS= to skip.
 #    Pages given as STEALTH_URL=url1,url2 are reported per tier.
 source "$(dirname "$0")/lib.sh"
 
 url="$(crw_url)"
 caps="$(curl -fsS -m 10 "$url/v1/capabilities")" || die "crw is not answering on $url — run: $(hint up-stealth up)"
 
-python3 -I - "$url" "$caps" "${STEALTH_URL:-}" "${EBAY_URL-https://www.ebay.com/itm/397708504283}" <<'PY'
+python3 -I - "$url" "$caps" "${STEALTH_URL:-}" "${EBAY_URL-https://www.ebay.com/itm/397708504283}" \
+  "${DATADOME_URLS-https://www.hermes.com/us/en/category/women/shoes/sneakers/,https://www.footlocker.com/release-dates,https://www.etsy.com/}" <<'PY'
 import json, re, sys, time, urllib.error, urllib.request
 
-base, caps, extra, ebay = sys.argv[1], json.loads(sys.argv[2]), sys.argv[3], sys.argv[4]
+base, caps, extra, ebay, datadome = sys.argv[1], json.loads(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5]
 TIERS = ["impersonated-http", "chrome", "camoufox"]
 JS_TIERS = ["chrome", "camoufox"]
 failed = False
@@ -149,6 +153,30 @@ if ebay:
           f"status={meta.get('statusCode')} chars={len(md)} {verdict}  {secs:.1f}s")
     if verdict == "listing":
         print(f"        title: {(meta.get('title') or '-')[:80]}")
+
+# DataDome's block pages: its captcha, or the device-check interstitial, both
+# served from captcha-delivery.com. A real page from a DataDome site carries its
+# sensor tag too, so the tag alone says nothing.
+DATADOME_WALL = re.compile(r"captcha-delivery\.com/(captcha|interstitial)|enable js and disable any ad blocker", re.I)
+if datadome:
+    print("\nDataDome sites, default scrape (informational: page = the real page, block page = DataDome's captcha or interstitial)")
+    for page in datadome.split(","):
+        data, secs = scrape(page, None, ["rawHtml", "markdown"], maxLength=0)
+        doc = data.get("data") or {}
+        meta = doc.get("metadata") or {}
+        md = doc.get("markdown") or ""
+        if not data.get("success"):
+            verdict = f"error: {data.get('error') or data.get('warning') or '-'}"
+        elif DATADOME_WALL.search(doc.get("rawHtml") or ""):
+            verdict = "block page"
+        elif len(md) < 2000:
+            verdict = "short page (empty shell?)"
+        else:
+            verdict = "page"
+        print(f"  {'ok  ' if verdict == 'page' else 'no  '}  {page[:44]:<44} renderedWith={meta.get('renderedWith')} "
+              f"status={meta.get('statusCode')} chars={len(md)} {verdict}  {secs:.1f}s")
+        if verdict == "page":
+            print(f"        title: {(meta.get('title') or '-')[:80]}")
 
 CHALLENGE = re.compile(r"just a moment|attention required|access denied|captcha|are you a robot|verify you are human", re.I)
 for page in filter(None, extra.split(",")):
