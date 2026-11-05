@@ -307,6 +307,12 @@ is on the session the cookies name, not on the address or the page, so a person
 who clears the site's data gets through too. Once per host every 10 minutes; a
 site that is down still fails after the one reload.
 
+A snapshot without a `<body>` is of a document still being parsed, since
+Chrome's parser gives every finished HTML document one: the site sent the
+reloaded page on to another, which is read once it has loaded. eBay did that to
+one first visit in ten, and the head-only snapshot had failed the scrape as a
+block.
+
 ### `xhr-prose-only.patch`
 
 One of CRW's fallbacks for a page whose text loads later builds markdown from long
