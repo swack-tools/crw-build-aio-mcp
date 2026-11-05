@@ -49,7 +49,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// Is `document.contentType` one a page is read from? Markup, text and data
  /// are; a PDF, an image or a video is not.
  fn is_page_content_type(content_type: &str) -> bool {
-@@ -4080,6 +4100,35 @@ impl CdpRenderer {
+@@ -4080,6 +4100,39 @@ impl CdpRenderer {
              tokio::time::sleep(RELOAD_PAUSE).await;
              html = self.reload_and_read(conn, session_id, net).await?;
              html = self.wait_out_challenge(conn, session_id, url, html).await?;
@@ -62,14 +62,18 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +            // on the same address, all got through. Drop the site's cookies
 +            // and storage, as a person clearing site data would, and visit
 +            // once more as a first visit, with the reload a first visit may
-+            // need. Once per host per WALL_RESET_COOLDOWN; a site that is down
-+            // fails as before.
++            // need. The site is the one the page ended on, past any redirect,
++            // since that is the document the reload reloads. Once per host per
++            // WALL_RESET_COOLDOWN; a site that is down fails as before.
++            let here = Self::document_url(conn, session_id)
++                .await
++                .unwrap_or_else(|| url.to_string());
 +            if is_revisitable_wall(Self::document_status(conn, session_id).await, &html)
-+                && self.wall_reset_due_for(url)
++                && self.wall_reset_due_for(&here)
 +            {
-+                let cookies = Self::clear_site_data(conn, session_id, url).await;
++                let cookies = Self::clear_site_data(conn, session_id, &here).await;
 +                tracing::info!(
-+                    url = %LogUrl(&url),
++                    url = %LogUrl(&here),
 +                    cookies,
 +                    "Anti-bot wall outlasted the reload; dropped the site's data for a first visit"
 +                );
@@ -85,10 +89,25 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          }
          let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
  
-@@ -4100,6 +4149,86 @@ impl CdpRenderer {
+@@ -4100,6 +4153,101 @@ impl CdpRenderer {
          Ok(html)
      }
  
++    /// The URL of the document now in the page, past any redirect, if it can
++    /// be read.
++    async fn document_url(conn: &CdpConnection, session_id: &str) -> Option<String> {
++        conn.send_recv(
++            "Runtime.evaluate",
++            serde_json::json!({ "expression": "location.href", "returnByValue": true }),
++            Some(session_id),
++            Duration::from_secs(2),
++        )
++        .await
++        .ok()
++        .and_then(|v| v.pointer("/result/value")?.as_str().map(str::to_owned))
++        .filter(|u| u.starts_with("http"))
++    }
++
 +    /// Whether `url`'s host may have its data dropped now (`wall_reset_due`).
 +    fn wall_reset_due_for(&self, url: &str) -> bool {
 +        let Some(host) = url::Url::parse(url)
@@ -172,7 +191,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      /// The HTTP status of the document now in the page, if it can be read.
      async fn document_status(conn: &CdpConnection, session_id: &str) -> Option<u16> {
          conn.send_recv(
-@@ -5668,6 +5797,24 @@ mod tests {
+@@ -5668,6 +5816,24 @@ mod tests {
          assert!(!r.skeleton_wait_applies(Some(500)));
      }
  

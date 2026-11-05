@@ -297,14 +297,15 @@ read as 200, because a challenge may have cleared after them.
 
 ### `wall-cookie-reset.patch`
 
-When a block page outlasts the reload of `revisit-walls.patch`, Chrome drops the site's cookies and
-storage and visits once more as a first visit, with the reload a first visit may
-need. After two hours on one profile, eBay's Akamai turned about half of all
-visits away with its 403 "Something went wrong" page, and the reload cleared only
-half of those; the same pages from a new profile, on the same address, all got
-through. The verdict is on the session the cookies name, not on the address or
-the page, so a person who clears the site's data gets through too. Once per host
-every 10 minutes; a site that is down still fails after the one reload.
+When a block page outlasts the reload of `revisit-walls.patch`, Chrome drops the
+cookies and storage of the site the page ended on, past any redirect, and visits
+once more as a first visit, with the reload a first visit may need. After two
+hours on one profile, eBay's Akamai turned about half of all visits away with its
+403 "Something went wrong" page, and the reload cleared only half of those; the
+same pages from a new profile, on the same address, all got through. The verdict
+is on the session the cookies name, not on the address or the page, so a person
+who clears the site's data gets through too. Once per host every 10 minutes; a
+site that is down still fails after the one reload.
 
 ### `xhr-prose-only.patch`
 
