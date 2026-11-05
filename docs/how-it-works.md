@@ -267,6 +267,21 @@ A page also counts as a block by its HTTP status, because eBay's first answer to
 fresh profile is a 403 that only reads "Something went wrong." A 429 doesn't count
 on its status alone, because another request right away doesn't help.
 
+### `skeleton-wait-fast-ready.patch`
+
+Skips CRW 0.41's skeleton wait when `CHROME_FAST_READY` is on, as it is here,
+or when the request sets `waitFor`. That wait starts when a page shows three or
+more elements whose class names say skeleton, placeholder, or shimmer, and
+holds until the region around them gains 200 characters of text, or for 9
+seconds. Upstream added it for a flight search whose result list fills 6 to 18
+seconds after the page loads. On a JB Hi-Fi product page, whose placeholders
+are images and prices that never gain text, it held the full 9 seconds, and
+1.5 seconds on a Reddit page that sat still. Under load, those 9 seconds tipped
+the render past the page timeout and into a plain-HTTP fallback. Fast ready
+reads a page as soon as its text is there, which is the opposite choice, so
+the two don't combine. Turn `CRW_RENDERER__CHROME_FAST_READY` off to get the
+wait back.
+
 ### `status-not-found.patch`
 
 Treats a 404 or 410 as the answer, so a dead link fails as

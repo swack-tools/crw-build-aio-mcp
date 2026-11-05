@@ -15,6 +15,9 @@
 #     one more request through the impersonated-http client, whose answer wins
 #     unless it is a block too, and no browser runs; a clean answer stays on
 #     plain HTTP.
+#   Skeleton wait, skeleton-wait-fast-ready.patch: CRW 0.41's wait for a
+#     page's skeleton placeholders to fill is skipped with CHROME_FAST_READY,
+#     or a caller's waitFor.
 #   MCP data tools, mcp-data-tools-probe.patch: a proxy to an API whose
 #     /v1/data/manifest is a 404 lists neither data tool and refuses a call
 #     to one; any other answer, or none, keeps them listed.
@@ -29,6 +32,7 @@ RENDERER_TESTS=(
   camoufox::tests::page_still_loading_is_read_again
   tests::forced_js_vendor_wall_falls_back_or_is_the_verdict
   tests::render_js_false_hops_to_impersonated_on_a_wall
+  cdp::tests::skeleton_wait_skipped_with_fast_ready_or_a_wait_for
 )
 # The proxy-only build, as bin/crw-mcp is.
 MCP_TESTS=(
