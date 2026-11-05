@@ -30,10 +30,17 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          }
      }
  
-@@ -2241,6 +2249,18 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
+@@ -2241,6 +2249,25 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
              && named.signal != crw_extract::antibot::AntibotSignal::StructuralFailure)
  }
  
++/// Does this snapshot have a `<body>`? Chrome's parser gives every finished
++/// HTML document one, so a snapshot without it is of a document still being
++/// parsed: the page sent the reader on to another one.
++fn has_body(html: &str) -> bool {
++    html.contains("<body")
++}
++
 +/// Whether `host`'s cookies and storage may be dropped now: when they weren't
 +/// within `WALL_RESET_COOLDOWN`. Records the drop when so, and forgets hosts
 +/// past the cooldown.
@@ -49,7 +56,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// Is `document.contentType` one a page is read from? Markup, text and data
  /// are; a PDF, an image or a video is not.
  fn is_page_content_type(content_type: &str) -> bool {
-@@ -4080,6 +4100,39 @@ impl CdpRenderer {
+@@ -4080,6 +4107,39 @@ impl CdpRenderer {
              tokio::time::sleep(RELOAD_PAUSE).await;
              html = self.reload_and_read(conn, session_id, net).await?;
              html = self.wait_out_challenge(conn, session_id, url, html).await?;
@@ -89,7 +96,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          }
          let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
  
-@@ -4100,6 +4153,101 @@ impl CdpRenderer {
+@@ -4100,6 +4160,101 @@ impl CdpRenderer {
          Ok(html)
      }
  
@@ -191,7 +198,59 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      /// The HTTP status of the document now in the page, if it can be read.
      async fn document_status(conn: &CdpConnection, session_id: &str) -> Option<u16> {
          conn.send_recv(
-@@ -5668,6 +5816,24 @@ mod tests {
+@@ -4179,25 +4334,36 @@ impl CdpRenderer {
+             self.page_timeout,
+         )
+         .await?;
+-        // A new document has a new time origin; wait for it to finish loading.
++        // A new document has a new time origin; wait for it to finish loading
++        // and the network to settle, then read it. A snapshot without a <body>
++        // is of a document still being parsed, since Chrome's parser gives
++        // every finished HTML document one: the site sent the reloaded page on
++        // to another, as eBay does to one first visit in ten, so wait for that
++        // one in turn, within the same budget.
+         let loaded_by = Instant::now() + RELOAD_LOAD_MAX;
+-        while Instant::now() < loaded_by {
+-            tokio::time::sleep(Duration::from_millis(SPA_SELECTOR_TICK_MS)).await;
+-            if let Some((origin, state)) = document().await
+-                && Some(origin) != before
+-                && state == "complete"
++        loop {
++            while Instant::now() < loaded_by {
++                tokio::time::sleep(Duration::from_millis(SPA_SELECTOR_TICK_MS)).await;
++                if let Some((origin, state)) = document().await
++                    && Some(origin) != before
++                    && state == "complete"
++                {
++                    break;
++                }
++            }
++            let settle_end = Instant::now() + Duration::from_millis(SETTLE_MAX_MS);
++            tokio::time::sleep(Duration::from_millis(SETTLE_MIN_MS)).await;
++            while Instant::now() < settle_end
++                && !net.is_settled(SETTLE_QUIET_MS, ALMOST_IDLE_MAX_INFLIGHT)
+             {
+-                break;
++                tokio::time::sleep(Duration::from_millis(SPA_SELECTOR_TICK_MS)).await;
++            }
++            let html = Self::eval_html(conn, session_id, self.page_timeout).await?;
++            let complete = matches!(document().await, Some((_, state)) if state == "complete");
++            if (has_body(&html) && complete) || Instant::now() >= loaded_by {
++                return Ok(html);
+             }
+         }
+-        let settle_end = Instant::now() + Duration::from_millis(SETTLE_MAX_MS);
+-        tokio::time::sleep(Duration::from_millis(SETTLE_MIN_MS)).await;
+-        while Instant::now() < settle_end
+-            && !net.is_settled(SETTLE_QUIET_MS, ALMOST_IDLE_MAX_INFLIGHT)
+-        {
+-            tokio::time::sleep(Duration::from_millis(SPA_SELECTOR_TICK_MS)).await;
+-        }
+-        Self::eval_html(conn, session_id, self.page_timeout).await
+     }
+ 
+     /// Measure the content box (Page.getLayoutMetrics) and decide whether a
+@@ -5668,6 +5834,33 @@ mod tests {
          assert!(!r.skeleton_wait_applies(Some(500)));
      }
  
@@ -211,6 +270,15 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +        assert!(r.wall_reset_due_for("https://www.ebay.com/itm/1"));
 +        assert!(!r.wall_reset_due_for("https://www.ebay.com/sch/i.html?_nkw=x"));
 +        assert!(!r.wall_reset_due_for("not a url"));
++    }
++
++    #[test]
++    fn reload_snapshot_without_a_body_is_still_parsing() {
++        use super::has_body;
++        assert!(has_body("<html><head></head><body><p>x</p></body></html>"));
++        assert!(has_body("<html><head></head><body class=\"a\">"));
++        assert!(!has_body("<html><head><script>var a = 1;</script></head></html>"));
++        assert!(!has_body(""));
 +    }
 +
      #[test]
