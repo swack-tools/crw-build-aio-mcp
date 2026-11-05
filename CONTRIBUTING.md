@@ -36,7 +36,7 @@ build on an earlier one.
 | Command | What it checks | Needs |
 |---|---|---|
 | `just test-patches` | The unit tests that the CRW patches add, against mock servers | `cargo` |
-| `just test-stealth` | Each tier, the bot checks, and an eBay listing, against live sites | A running stack |
+| `just test-stealth` | Each tier, the bot checks, an eBay listing, and three DataDome sites, against live sites | A running stack |
 | `just test-stealth-claude`, `just test-stealth-codex`, `just test-stealth-antigravity` | The same scrapes through an MCP client | A running stack and the client |
 | `just lint-docs` | The docs, against the Google style | [Vale](https://vale.sh/docs/install) |
 
