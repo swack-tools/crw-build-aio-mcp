@@ -74,6 +74,11 @@ SEARXNG_SECRET_KEY=
 # a page that crashes a tab or runs out of memory)
 # CHROME_SHM_SIZE=512m
 # CHROME_MEM_LIMIT=1536m
+
+# camofox's shared memory and memory limit (uncomment to raise them for a page
+# that crashes a tab or runs out of memory)
+# CAMOFOX_SHM_SIZE=1g
+# CAMOFOX_MEM_LIMIT=2g
 EOF
 
 cp "$ROOT/release/install.sh" "$out/"

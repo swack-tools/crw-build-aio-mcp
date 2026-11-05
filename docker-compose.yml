@@ -156,9 +156,13 @@ services:
       - CAMOFOX_CRASH_REPORT_ENABLED=false
       - MAX_OLD_SPACE_SIZE=512
       - TZ=${CRW_TZ:-UTC}
-    shm_size: 2g
-    mem_limit: 4g
-    memswap_limit: 4g
+    # Firefox under camofox-browser sat around 130 MB idle and well under 1g
+    # on the test-stealth pages; upstream's 4g limit and 2g of shared memory
+    # were room it never used. Raise either for a page that crashes a tab or
+    # runs out of memory.
+    shm_size: ${CAMOFOX_SHM_SIZE:-1g}
+    mem_limit: ${CAMOFOX_MEM_LIMIT:-2g}
+    memswap_limit: ${CAMOFOX_MEM_LIMIT:-2g}
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9377/health"]
       interval: 15s
