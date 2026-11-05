@@ -1,0 +1,199 @@
+diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
+--- a/crates/crw-renderer/src/cdp.rs
++++ b/crates/crw-renderer/src/cdp.rs
+@@ -102,6 +102,10 @@ const SETTLE_MAX_MS: u64 = 4000;
+ /// `RELOAD_LOAD_MAX` to load before the settle above.
+ const RELOAD_PAUSE: Duration = Duration::from_millis(1500);
+ const RELOAD_LOAD_MAX: Duration = Duration::from_secs(12);
++/// After a wall outlasts the reload, the site's cookies and storage are
++/// dropped and it is visited once more as a first visit, at most once per host
++/// in this long.
++const WALL_RESET_COOLDOWN: Duration = Duration::from_secs(10 * 60);
+ /// How long a JavaScript dialog stays open before crw accepts it.
+ const DIALOG_ANSWER_DELAY: Duration = Duration::from_millis(700);
+ /// Max iterations for the auto-scroll lazy-load pass. 12 viewports usually
+@@ -557,6 +561,9 @@ pub struct CdpRenderer {
+     fast_ready: bool,
+     /// UA for `Network.setUserAgentOverride`; empty = no override (browser default).
+     user_agent: String,
++    /// When each host last had its cookies and storage dropped because a wall
++    /// outlasted the reload (see `WALL_RESET_COOLDOWN`).
++    wall_resets: Arc<StdMutex<HashMap<String, Instant>>>,
+ }
+ 
+ impl CdpRenderer {
+@@ -591,6 +598,7 @@ impl CdpRenderer {
+             spa_selector_max: Duration::from_millis(SPA_SELECTOR_MAX_MS),
+             fast_ready: false,
+             user_agent: String::new(),
++            wall_resets: Arc::default(),
+         }
+     }
+ 
+@@ -2241,6 +2249,18 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
+             && named.signal != crw_extract::antibot::AntibotSignal::StructuralFailure)
+ }
+ 
++/// Whether `host`'s cookies and storage may be dropped now: when they weren't
++/// within `WALL_RESET_COOLDOWN`. Records the drop when so, and forgets hosts
++/// past the cooldown.
++fn wall_reset_due(resets: &mut HashMap<String, Instant>, host: &str, now: Instant) -> bool {
++    resets.retain(|_, at| now.saturating_duration_since(*at) < WALL_RESET_COOLDOWN);
++    if resets.contains_key(host) {
++        return false;
++    }
++    resets.insert(host.to_string(), now);
++    true
++}
++
+ /// Is `document.contentType` one a page is read from? Markup, text and data
+ /// are; a PDF, an image or a video is not.
+ fn is_page_content_type(content_type: &str) -> bool {
+@@ -4080,6 +4100,35 @@ impl CdpRenderer {
+             tokio::time::sleep(RELOAD_PAUSE).await;
+             html = self.reload_and_read(conn, session_id, net).await?;
+             html = self.wait_out_challenge(conn, session_id, url, html).await?;
++
++            // 7. A wall that outlasts the reload, on a profile the site has
++            // seen for hours, is its verdict on this session rather than on
++            // the visit: after two hours on one profile, eBay's Akamai turned
++            // about half of all visits away with its 403 and the reload
++            // cleared half of those, while the same pages from a new profile,
++            // on the same address, all got through. Drop the site's cookies
++            // and storage, as a person clearing site data would, and visit
++            // once more as a first visit, with the reload a first visit may
++            // need. Once per host per WALL_RESET_COOLDOWN; a site that is down
++            // fails as before.
++            if is_revisitable_wall(Self::document_status(conn, session_id).await, &html)
++                && self.wall_reset_due_for(url)
++            {
++                let cookies = Self::clear_site_data(conn, session_id, url).await;
++                tracing::info!(
++                    url = %LogUrl(&url),
++                    cookies,
++                    "Anti-bot wall outlasted the reload; dropped the site's data for a first visit"
++                );
++                for _ in 0..2 {
++                    tokio::time::sleep(RELOAD_PAUSE).await;
++                    html = self.reload_and_read(conn, session_id, net).await?;
++                    html = self.wait_out_challenge(conn, session_id, url, html).await?;
++                    if !is_revisitable_wall(Self::document_status(conn, session_id).await, &html) {
++                        break;
++                    }
++                }
++            }
+         }
+         let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
+ 
+@@ -4100,6 +4149,86 @@ impl CdpRenderer {
+         Ok(html)
+     }
+ 
++    /// Whether `url`'s host may have its data dropped now (`wall_reset_due`).
++    fn wall_reset_due_for(&self, url: &str) -> bool {
++        let Some(host) = url::Url::parse(url)
++            .ok()
++            .and_then(|u| u.host_str().map(str::to_owned))
++        else {
++            return false;
++        };
++        let mut resets = self.wall_resets.lock().unwrap_or_else(|e| e.into_inner());
++        wall_reset_due(&mut resets, &host, Instant::now())
++    }
++
++    /// Drop the cookies `url` would be sent, and its origin's storage, so the
++    /// next visit is a first one. Best-effort; returns how many cookies went.
++    async fn clear_site_data(conn: &CdpConnection, session_id: &str, url: &str) -> usize {
++        let cookies = conn
++            .send_recv(
++                "Network.getCookies",
++                serde_json::json!({ "urls": [url] }),
++                Some(session_id),
++                Duration::from_secs(2),
++            )
++            .await
++            .ok();
++        let mut dropped = 0;
++        for c in cookies
++            .as_ref()
++            .and_then(|r| r.get("cookies"))
++            .and_then(|c| c.as_array())
++            .into_iter()
++            .flatten()
++        {
++            let (Some(name), Some(domain)) = (
++                c.get("name").and_then(|v| v.as_str()),
++                c.get("domain").and_then(|v| v.as_str()),
++            ) else {
++                continue;
++            };
++            let path = c.get("path").and_then(|v| v.as_str()).unwrap_or("/");
++            if conn
++                .send_recv(
++                    "Network.deleteCookies",
++                    serde_json::json!({ "name": name, "domain": domain, "path": path }),
++                    Some(session_id),
++                    Duration::from_secs(2),
++                )
++                .await
++                .is_ok()
++            {
++                dropped += 1;
++            }
++        }
++        // The wall is the site's own document, so its storage is in reach.
++        let _ = conn
++            .send_recv(
++                "Runtime.evaluate",
++                serde_json::json!({
++                    "expression": "try { sessionStorage.clear(); localStorage.clear(); } catch (e) {}",
++                    "returnByValue": true,
++                }),
++                Some(session_id),
++                Duration::from_secs(2),
++            )
++            .await;
++        if let Ok(origin) = url::Url::parse(url).map(|u| u.origin().ascii_serialization()) {
++            let _ = conn
++                .send_recv(
++                    "Storage.clearDataForOrigin",
++                    serde_json::json!({
++                        "origin": origin,
++                        "storageTypes": "local_storage,indexeddb,cache_storage,service_workers",
++                    }),
++                    Some(session_id),
++                    Duration::from_secs(5),
++                )
++                .await;
++        }
++        dropped
++    }
++
+     /// The HTTP status of the document now in the page, if it can be read.
+     async fn document_status(conn: &CdpConnection, session_id: &str) -> Option<u16> {
+         conn.send_recv(
+@@ -5668,6 +5797,24 @@ mod tests {
+         assert!(!r.skeleton_wait_applies(Some(500)));
+     }
+ 
++    #[test]
++    fn wall_reset_once_per_host_per_cooldown() {
++        use super::{CdpRenderer, WALL_RESET_COOLDOWN, wall_reset_due};
++        use std::collections::HashMap;
++        use std::time::{Duration, Instant};
++        let mut resets = HashMap::new();
++        let t0 = Instant::now();
++        assert!(wall_reset_due(&mut resets, "www.ebay.com", t0));
++        assert!(!wall_reset_due(&mut resets, "www.ebay.com", t0 + Duration::from_secs(1)));
++        assert!(wall_reset_due(&mut resets, "www.reddit.com", t0 + Duration::from_secs(1)));
++        assert!(wall_reset_due(&mut resets, "www.ebay.com", t0 + WALL_RESET_COOLDOWN));
++        assert_eq!(resets.len(), 2);
++        let r = CdpRenderer::new("chrome", "ws://x/", 1000, 1);
++        assert!(r.wall_reset_due_for("https://www.ebay.com/itm/1"));
++        assert!(!r.wall_reset_due_for("https://www.ebay.com/sch/i.html?_nkw=x"));
++        assert!(!r.wall_reset_due_for("not a url"));
++    }
++
+     #[test]
+     fn with_proxy_auth_base_stores_creds_and_default_country() {
+         let r = CdpRenderer::new("chrome", "ws://x/", 1000, 1);

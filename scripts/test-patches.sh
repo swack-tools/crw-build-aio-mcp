@@ -15,6 +15,9 @@
 #     one more request through the impersonated-http client, whose answer wins
 #     unless it is a block too, and no browser runs; a clean answer stays on
 #     plain HTTP.
+#   eBay, wall-cookie-reset.patch: a host whose wall outlasts the reload has
+#     its cookies dropped once, not again within the cooldown, and never for
+#     a string that isn't a URL.
 #   Skeleton wait, skeleton-wait-fast-ready.patch: CRW 0.41's wait for a
 #     page's skeleton placeholders to fill is skipped with CHROME_FAST_READY,
 #     or a caller's waitFor.
@@ -33,6 +36,7 @@ RENDERER_TESTS=(
   tests::forced_js_vendor_wall_falls_back_or_is_the_verdict
   tests::render_js_false_hops_to_impersonated_on_a_wall
   cdp::tests::skeleton_wait_skipped_with_fast_ready_or_a_wait_for
+  cdp::tests::wall_reset_once_per_host_per_cooldown
 )
 # The proxy-only build, as bin/crw-mcp is.
 MCP_TESTS=(
