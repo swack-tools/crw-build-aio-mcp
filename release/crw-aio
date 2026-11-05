@@ -13,7 +13,11 @@ usage: crw-aio <command>
   logs [service...]      follow logs (crw, camofox, chrome-stealth, searxng)
   test                   scrape through each stealth tier, plus a bot-check report
   mcp install|uninstall [claude|codex|antigravity|all] [--dry-run] [--yes]
-                         register the crw MCP server (shows the changes, asks first)
+                         register the crw MCP server and install crw's agent
+                         skills (shows the changes, asks first)
+  skills install|uninstall [claude|codex|antigravity|all] [--dry-run] [--yes]
+                         only the skills: when to search, scrape, map, crawl,
+                         parse or extract
   uninstall              remove the MCP entries, the stack and $ROOT
 
 crw listens on $(crw_url) (CRW_HOST_PORT in $ROOT/.env).
@@ -29,21 +33,23 @@ case "$cmd" in
   status) compose ps ;;
   logs) compose logs -f --tail=100 "$@" ;;
   test) exec "$ROOT/scripts/test-stealth.sh" ;;
-  mcp)
+  mcp|skills)
     action="${1:-}"
     [[ "$action" == install || "$action" == uninstall ]] || { usage >&2; exit 1; }
     shift
     target=all
     if [[ "${1:-}" =~ ^(claude|codex|antigravity|all)$ ]]; then target="$1"; shift; fi
-    exec "$ROOT/scripts/install-mcp.sh" "$action" "$target" "$@"
+    [[ "$cmd" == skills ]] || "$ROOT/scripts/install-mcp.sh" "$action" "$target" "$@"
+    exec "$ROOT/scripts/install-skills.sh" "$action" "$target" "$@"
     ;;
   uninstall)
     # Only ever delete a directory that is an installed bundle.
     [[ -f "$ROOT/docker-compose.yml" && -x "$ROOT/bin/crw-aio" ]] || die "$ROOT does not look like a crw-aio install"
     [[ -t 0 ]] || die "no terminal to confirm on"
-    read -r -p "Remove the crw MCP entries, stop the stack and delete $ROOT? [y/N] " answer
+    read -r -p "Remove the crw MCP entries and skills, stop the stack and delete $ROOT? [y/N] " answer
     [[ "$answer" =~ ^[Yy] ]] || die "aborted; nothing was changed"
     "$ROOT/scripts/install-mcp.sh" uninstall all --yes
+    "$ROOT/scripts/install-skills.sh" uninstall all --yes
     compose down --remove-orphans
     link="$HOME/.local/bin/crw-aio"
     [[ "$(readlink "$link" 2>/dev/null)" != "$ROOT/bin/crw-aio" ]] || rm -f "$link"

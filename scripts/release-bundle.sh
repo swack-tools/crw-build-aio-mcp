@@ -56,7 +56,10 @@ images="$(python3 -I -c 'import json, sys; print("\n".join("  " + s["image"] for
 docker compose -p crw-aio -f "$payload/compose.json" config --no-interpolate --no-path-resolution > "$payload/docker-compose.yml"
 rm "$payload/compose.json"
 
-cp "$ROOT"/scripts/{lib.sh,pick-port.sh,up.sh,install-mcp.sh,mcp_config.py,test-stealth.sh} "$payload/scripts/"
+cp "$ROOT"/scripts/{lib.sh,pick-port.sh,up.sh,install-mcp.sh,install-skills.sh,mcp_config.py,test-stealth.sh} "$payload/scripts/"
+# crw's agent skills, which install-skills.sh copies into each agent.
+[[ -d "$(src_dir crw)/skills" ]] || die "no skills/ in the crw checkout; run: $(hint fetch update)"
+cp -R "$(src_dir crw)/skills" "$payload/skills"
 cp "$ROOT/release/crw-aio" "$payload/bin/"
 [[ ! -x "$BIN/crw-mcp" ]] || cp "$BIN/crw-mcp" "$payload/bin/"
 cat > "$payload/.env.example" <<'EOF'

@@ -139,12 +139,6 @@ target_codex() {
   fi
 }
 
-antigravity_present() {
-  command -v agy >/dev/null || [[ -x "$HOME/.local/bin/agy" || -d "$HOME/.gemini" ]] && return 0
-  [[ "$(uname -s)" == Darwin ]] &&
-    [[ -d /Applications/Antigravity.app || -d "/Applications/Antigravity IDE.app" ]]
-}
-
 target_antigravity() {
   log "Antigravity ($action)"
   # Without Antigravity, that path would be a stray file.

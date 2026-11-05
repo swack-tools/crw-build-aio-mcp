@@ -15,31 +15,46 @@
 #     one more request through the impersonated-http client, whose answer wins
 #     unless it is a block too, and no browser runs; a clean answer stays on
 #     plain HTTP.
+#   MCP data tools, mcp-data-tools-probe.patch: a proxy to an API whose
+#     /v1/data/manifest is a 404 lists neither data tool and refuses a call
+#     to one; any other answer, or none, keeps them listed.
 #
 # A test that is renamed or dropped fails the run instead of matching nothing.
 # Usage: test-patches.sh
 source "$(dirname "$0")/lib.sh"
 
-FEATURES="cdp,camoufox,impersonated"
-TESTS=(
+RENDERER_FEATURES="cdp,camoufox,impersonated"
+RENDERER_TESTS=(
   cdp::tests::revisitable_walls
   camoufox::tests::page_still_loading_is_read_again
   tests::forced_js_vendor_wall_falls_back_or_is_the_verdict
   tests::render_js_false_hops_to_impersonated_on_a_wall
+)
+# The proxy-only build, as bin/crw-mcp is.
+MCP_TESTS=(
+  tests::handle_request_hides_the_data_tools_when_the_api_has_none
+  tests::data_tools_available_hides_them_only_on_a_manifest_404
 )
 
 command -v cargo >/dev/null || die "cargo is not installed: see https://rustup.rs"
 "$ROOT/scripts/fetch-sources.sh" crw
 apply_patches crw
 
-log "crw-renderer: running ${#TESTS[@]} patch tests"
 out="$(mktemp)"
 trap 'rm -f "$out"' EXIT
-(cd "$(src_dir crw)" &&
-  cargo test --locked -p crw-renderer --features "$FEATURES" --lib -- --exact "${TESTS[@]}") 2>&1 |
-  tee "$out" || die "patch tests failed"
-
-for t in "${TESTS[@]}"; do
-  grep -q "^test $t \.\.\. ok$" "$out" || die "$t did not run: was it renamed in patches/crw/? update TESTS in $0"
-done
-log "all ${#TESTS[@]} patch tests passed"
+# run_tests <crate> <test>... -- <cargo test args>: every named test has to run and pass.
+run_tests() {
+  local crate="$1" tests=() t
+  shift
+  while [[ "$1" != -- ]]; do tests+=("$1"); shift; done
+  shift
+  log "$crate: running ${#tests[@]} patch tests"
+  (cd "$(src_dir crw)" && cargo test --locked -p "$crate" "$@" -- --exact "${tests[@]}") 2>&1 |
+    tee "$out" || die "patch tests failed"
+  for t in "${tests[@]}"; do
+    grep -q "^test $t \.\.\. ok$" "$out" || die "$t did not run: was it renamed in patches/crw/? update the tests in $0"
+  done
+}
+run_tests crw-renderer "${RENDERER_TESTS[@]}" -- --features "$RENDERER_FEATURES" --lib
+run_tests crw-mcp "${MCP_TESTS[@]}" -- --no-default-features --bin crw-mcp
+log "all $((${#RENDERER_TESTS[@]} + ${#MCP_TESTS[@]})) patch tests passed"

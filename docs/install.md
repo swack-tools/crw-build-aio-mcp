@@ -42,6 +42,9 @@ The installer does the following:
 1. Registers the `crw` MCP server with Claude Code, Claude Desktop, the Codex
    command-line tool, ChatGPT desktop, and Antigravity, if you have it. It shows
    each config change and asks before applying it.
+1. Installs CRW's agent skills into Claude Code, the Codex command-line tool, and
+   Antigravity. They teach the agent which tool a task needs: search, scrape,
+   map, crawl, parse, or extract.
 
 Claude Desktop reads its config only at launch, so if it's running, the installer
 quits it before the edit and reopens it afterward. It warns you about this first. Run the
@@ -79,8 +82,10 @@ crw-aio test
 | `crw-aio status` | List the containers. |
 | `crw-aio logs [SERVICE...]` | Follow the logs of `crw`, `camofox`, `chrome-stealth`, or `searxng`. |
 | `crw-aio test` | Scrape through each stealth tier and report on bot checks. |
-| `crw-aio mcp install [TARGET] [--dry-run] [--yes]` | Register the MCP server. |
-| `crw-aio mcp uninstall [TARGET] [--dry-run] [--yes]` | Remove the MCP server. |
+| `crw-aio mcp install [TARGET] [--dry-run] [--yes]` | Register the MCP server and install the skills. |
+| `crw-aio mcp uninstall [TARGET] [--dry-run] [--yes]` | Remove the MCP server and the skills. |
+| `crw-aio skills install [TARGET] [--dry-run] [--yes]` | Install only the skills. |
+| `crw-aio skills uninstall [TARGET] [--dry-run] [--yes]` | Remove only the skills. |
 | `crw-aio help` | Print this list. |
 
 `TARGET` is `claude`, `codex`, `antigravity`, or `all`, which is the default.

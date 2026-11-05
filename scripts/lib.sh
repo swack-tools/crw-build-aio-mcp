@@ -185,6 +185,13 @@ compose() {
 
 crw_url() { echo "http://127.0.0.1:${CRW_HOST_PORT:-3000}"; }
 
+# Whether Antigravity (the app, the IDE or agy) is on this machine.
+antigravity_present() {
+  command -v agy >/dev/null || [[ -x "$HOME/.local/bin/agy" || -d "$HOME/.gemini" ]] && return 0
+  [[ "$(uname -s)" == Darwin ]] &&
+    [[ -d /Applications/Antigravity.app || -d "/Applications/Antigravity IDE.app" ]]
+}
+
 # Name a command in messages: `just <recipe>` in a checkout, `crw-aio <cmd>` in
 # a release bundle (which has no Justfile).
 hint() {

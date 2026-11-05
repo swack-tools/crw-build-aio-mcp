@@ -204,6 +204,16 @@ tries the next tier:
   Cloudflare's and Kasada's.
 - CRW reports the real page's status after AWS WAF's challenge, a 202, clears.
 
+### `mcp-data-tools-probe.patch`
+
+Lists the MCP server's two data tools, `crw_find_data` and `crw_get_data`, only
+when the API it proxies serves data sources. CRW 0.41 added them to every
+proxy-mode server. They fetch a manifest from `/v1/data/manifest`, which only
+the managed API serves, so against a server built here every call ended in
+`data_sources_unavailable`. At startup, the proxy asks for the manifest once. A
+404 hides both tools, and their sentence in the server instructions. Any other
+answer, or no answer, keeps them listed.
+
 ### `render-browser-first.patch`
 
 Sends a page to the browser first. Upstream fetched every page once over plain HTTP
@@ -304,3 +314,7 @@ is busy, `up-stealth` offers the next free one and saves the choice to `.env`.
 - Codex gets `tool_timeout_sec = 300`, because Camoufox scrapes can outlast its
   60-second default.
 - Every config file edit is shown as a diff and backed up first.
+- The skills that `install-skills.sh` copies into `~/.claude/skills`,
+  `~/.agents/skills`, and `~/.gemini/config/skills` are CRW's own, from `skills/`
+  in its repository, unchanged. The two it leaves out, `crw-migrate` and
+  `crw-self-host`, cover moving to CRW or running it, not using this stack.

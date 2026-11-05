@@ -86,37 +86,53 @@ caps:
 
 # ── MCP ──────────────────────────────────────────────────────────────────
 
-# Install the crw MCP server into Claude, Codex and Antigravity (asks first)  [--dry-run] [--yes]
+# Install the crw MCP server and crw's agent skills into Claude, Codex and Antigravity (asks first)  [--dry-run] [--yes]
 install *flags: build-mcp
     @scripts/install-mcp.sh install all {{ flags }}
+    @scripts/install-skills.sh install all {{ flags }}
 
 # Install into Claude Code + Claude Desktop (asks first)  [--dry-run] [--yes]
 install-claude *flags: build-mcp
     @scripts/install-mcp.sh install claude {{ flags }}
+    @scripts/install-skills.sh install claude {{ flags }}
 
 # Install into Codex CLI + ChatGPT desktop (asks first)  [--dry-run] [--yes]
 install-codex *flags: build-mcp
     @scripts/install-mcp.sh install codex {{ flags }}
+    @scripts/install-skills.sh install codex {{ flags }}
 
 # Install into the Antigravity app, IDE and agy (asks first)  [--dry-run] [--yes]
 install-antigravity *flags: build-mcp
     @scripts/install-mcp.sh install antigravity {{ flags }}
+    @scripts/install-skills.sh install antigravity {{ flags }}
 
-# Remove the crw MCP server from Claude, Codex and Antigravity (asks first)  [--dry-run] [--yes]
+# Remove the crw MCP server and skills from Claude, Codex and Antigravity (asks first)  [--dry-run] [--yes]
 uninstall *flags:
     @scripts/install-mcp.sh uninstall all {{ flags }}
+    @scripts/install-skills.sh uninstall all {{ flags }}
 
 # Remove from Claude Code + Claude Desktop (asks first)  [--dry-run] [--yes]
 uninstall-claude *flags:
     @scripts/install-mcp.sh uninstall claude {{ flags }}
+    @scripts/install-skills.sh uninstall claude {{ flags }}
 
 # Remove from Codex CLI + ChatGPT desktop (asks first)  [--dry-run] [--yes]
 uninstall-codex *flags:
     @scripts/install-mcp.sh uninstall codex {{ flags }}
+    @scripts/install-skills.sh uninstall codex {{ flags }}
 
 # Remove from the Antigravity app, IDE and agy (asks first)  [--dry-run] [--yes]
 uninstall-antigravity *flags:
     @scripts/install-mcp.sh uninstall antigravity {{ flags }}
+    @scripts/install-skills.sh uninstall antigravity {{ flags }}
+
+# Install only the skills (when to search, scrape, map, crawl, parse, extract)  [claude|codex|antigravity|all] [--dry-run] [--yes]
+install-skills target="all" *flags: fetch
+    @scripts/install-skills.sh install {{ target }} {{ flags }}
+
+# Remove only the skills  [claude|codex|antigravity|all] [--dry-run] [--yes]
+uninstall-skills target="all" *flags:
+    @scripts/install-skills.sh uninstall {{ target }} {{ flags }}
 
 # ── release ──────────────────────────────────────────────────────────────
 
