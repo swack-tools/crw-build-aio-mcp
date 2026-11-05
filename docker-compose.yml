@@ -6,11 +6,22 @@
 #   docker-compose.yml           139b4e2d6fbac724e7034f38da0c93ddd7f382c4
 #   docker-compose.stealth.yml   dc04ca0872ee3423b23a64c22b6bc0094a22ee10
 #   config/searxng/settings.yml  5f88f417910c58e4995b4452d03a40f47d70fdb8
+
+# Docker keeps every line a container ever logged unless told otherwise. Each
+# container's log stays under 30 MB (three 10 MB files; `docker logs` still
+# reads them all).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   crw:
     image: ${PROJECT:-crw-config}/crw:${TAG:-local}
     pull_policy: never
     restart: unless-stopped
+    logging: *logging
     # Loopback unless CRW_BIND_ADDRESS says otherwise (upstream binds 0.0.0.0).
     ports:
       - ${CRW_BIND_ADDRESS:-127.0.0.1}:${CRW_HOST_PORT:-3000}:3000
@@ -93,6 +104,7 @@ services:
     image: ${PROJECT:-crw-config}/searxng:${TAG:-local}
     pull_policy: never
     restart: unless-stopped
+    logging: *logging
     environment:
       - SEARXNG_BASE_URL=http://searxng:8080/
       - SEARXNG_SECRET_KEY=${SEARXNG_SECRET_KEY:-change-me-with-openssl-rand-hex-32-please}
@@ -123,6 +135,7 @@ services:
     image: ${PROJECT:-crw-config}/chrome-stealth:${TAG:-local}
     pull_policy: never
     restart: unless-stopped
+    logging: *logging
     environment:
       - TZ=${CRW_TZ:-UTC}
     # Reaps Chrome's exited child processes.
@@ -151,6 +164,7 @@ services:
     image: ${PROJECT:-crw-config}/camofox:${TAG:-local}
     pull_policy: never
     restart: unless-stopped
+    logging: *logging
     environment:
       - CAMOFOX_PORT=9377
       - CAMOFOX_CRASH_REPORT_ENABLED=false

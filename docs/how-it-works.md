@@ -67,6 +67,8 @@ filled upstream's 512 MB in about two days of steady scraping. Chrome then
 had no space to write, and its DevTools sessions hung. `start.sh` caps the HTTP
 and media caches, and `CHROME_SHM_SIZE` and `CHROME_MEM_LIMIT` in `.env` raise
 the container's shared memory and memory limit for a page that needs more.
+Each container's log is capped at 30 MB (three 10 MB files); Docker otherwise
+keeps every line a container ever logged.
 
 It runs the local images without upstream's Lightpanda and browserless services.
 It adds the `camofox` service, which CRW reaches through
@@ -117,7 +119,9 @@ Chromium image instead.
   way of turning it on in a container gets caught by a real anti-bot vendor. Akamai
   catches Mesa's software renderer, DataDome catches the same renderer under a real
   GPU's name, and Cloudflare catches Chrome's SwiftShader. With WebGL off, all three let
-  Chrome through.
+  Chrome through. Chrome's GPU process logs `WebGL1 blocklisted` each time a page
+  script asks for a context, about 18 lines a page, so `start.sh` drops those lines
+  from the container's log and keeps every other one.
 - **Reserved taskbar.** The display reserves 40 pixels for a taskbar, and the window
   fits the rest. A screen whose whole area is free, with a window as large as the
   screen, is how headless Chrome looks.

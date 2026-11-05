@@ -52,6 +52,10 @@ node "$(dirname "$0")/chrome-stealth-pointer.js" $((PORT + 1)) "$width" $((heigh
 # pages note the missing WebGL.
 # The three background flags stop Chrome throttling the windows crw opens
 # behind each other; occluded windows would report themselves hidden.
+# With WebGL off, Chrome's GPU process logs "WebGL1 blocklisted" each time a
+# page script asks for a context, about 18 lines a page and 98% of this
+# container's log. They say only what the comment above does, so they are
+# dropped from Chrome's stderr; every other line still reaches the log.
 "$CHROME" \
   --no-sandbox \
   --remote-debugging-port=$((PORT + 1)) \
@@ -68,7 +72,7 @@ node "$(dirname "$0")/chrome-stealth-pointer.js" $((PORT + 1)) "$width" $((heigh
   --disk-cache-size="$DISK_CACHE" \
   --media-cache-size="$MEDIA_CACHE" \
   "$@" \
-  about:blank &
+  about:blank 2> >(grep --line-buffered -vE 'WebGL[12] blocklisted' >&2) &
 
 # Exit when any of them does, so compose restarts the whole set.
 wait -n
