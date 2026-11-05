@@ -11,16 +11,21 @@
 #   Akamai, render-browser-first.patch: when both browsers get Akamai's wall,
 #     the scrape fails as blocked without an HTTP request from this IP; other
 #     vendors' walls still fall back to HTTP, and a real HTTP body wins.
+#   renderJs: false (#23), render-js-false-hop.patch: a plain-HTTP block gets
+#     one more request through the impersonated-http client, whose answer wins
+#     unless it is a block too, and no browser runs; a clean answer stays on
+#     plain HTTP.
 #
 # A test that is renamed or dropped fails the run instead of matching nothing.
 # Usage: test-patches.sh
 source "$(dirname "$0")/lib.sh"
 
-FEATURES="cdp,camoufox"
+FEATURES="cdp,camoufox,impersonated"
 TESTS=(
   cdp::tests::revisitable_walls
   camoufox::tests::page_still_loading_is_read_again
   tests::forced_js_vendor_wall_falls_back_or_is_the_verdict
+  tests::render_js_false_hops_to_impersonated_on_a_wall
 )
 
 command -v cargo >/dev/null || die "cargo is not installed: see https://rustup.rs"

@@ -220,6 +220,28 @@ browsers are blocked or fail, and for files:
   Akamai's wall wants, and one more non-browser request is what Akamai holds against
   your IP address.
 
+### `render-js-false-hop.patch`
+
+Gives a `renderJs: false` scrape the second request the README describes. CRW
+answered it with plain HTTP alone, so a site that turns the plain client's TLS
+handshake away blocked every such scrape. JB Hi-Fi answered a 429 to plain HTTP
+and a 200 to the `impersonated-http` tier, every time
+([#23](https://github.com/swack-tools/crw-build-aio-mcp/issues/23)). Upstream's
+auto mode makes that hop and its `renderJs: false` path didn't.
+
+When plain HTTP gets a block page, a 401, 403, 429 or 503, or a transport
+failure that a Chrome TLS fingerprint can get past, the scrape makes one more
+request through the `impersonated-http` client and returns that answer unless
+it's a block too. No browser runs in either case.
+
+The hop keeps two rules of its own, because nothing runs after it. Auto mode
+skips the hop on a vendor's JavaScript challenge, since Chrome follows and
+clears it; here the hop is the one chance the scrape has, and Cloudflare serves
+JB Hi-Fi's product pages with a challenge to the plain client and without one to
+the `impersonated-http` client. Auto mode also rejects a page that needs
+JavaScript, since Chrome would do better; here a request that set
+`renderJs: false` asked for that page as it is.
+
 ### `revisit-walls.patch`
 
 When Chrome's first visit gets a block page, it reloads once after a short pause,
