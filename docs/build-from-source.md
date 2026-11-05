@@ -109,7 +109,7 @@ The following differs from a Mac:
 | `build-all` | Build multi-architecture images for both architectures. |
 | `push` | Run `build-all`, and then push to `$REGISTRY`. |
 | `build-camoufox [ARCH]` | Build only the Camoufox zip in `~/.crw/dist`. |
-| `build-mcp` | Build the native `bin/crw-mcp`, a proxy-only build. |
+| `build-mcp` | Build the native `bin/crw-mcp`, a proxy-only build, from the patched checkout. |
 | `fetch` | Clone any missing upstream into `~/.crw/src`. |
 | `update` | Fast-forward every upstream, and then run `build`. |
 | `install`, `install-claude`, `install-codex`, `install-antigravity` | Register the MCP server and install the skills. Each takes `--dry-run` and `--yes`. |

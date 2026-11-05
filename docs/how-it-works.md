@@ -148,7 +148,8 @@ iframe. camofox-browser's crash reporter is off
 ## Patches to CRW
 
 The patches in `patches/crw/` apply in name order, and later patches can build on
-earlier ones.
+earlier ones. `prep-sources.sh` applies them before an image build, and
+`build-mcp.sh` before it compiles the native MCP binary.
 
 ### `camoufox-after-chrome.patch`
 

@@ -47,8 +47,7 @@ build-camoufox arch=host_arch:
 
 # Build the native crw-mcp proxy binary into bin/
 build-mcp:
-    @scripts/fetch-sources.sh --quiet crw
-    @source scripts/lib.sh && cd "$(src_dir crw)" && cargo build --quiet --release --locked -p crw-mcp --no-default-features
+    @scripts/build-mcp.sh
     @# Copy to a new file and rename it into place: overwriting a binary macOS
     @# has already run keeps its old signature cached, and the kernel then kills
     @# the new one on launch (exit 137), so the MCP clients fail to connect.
