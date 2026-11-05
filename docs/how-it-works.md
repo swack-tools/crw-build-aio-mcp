@@ -148,7 +148,8 @@ iframe. camofox-browser's crash reporter is off
 ## Patches to CRW
 
 The patches in `patches/crw/` apply in name order, and later patches can build on
-earlier ones.
+earlier ones. `prep-sources.sh` applies them before an image build, and
+`build-mcp.sh` before it compiles the native MCP binary.
 
 ### `camoufox-after-chrome.patch`
 
@@ -204,6 +205,16 @@ tries the next tier:
   Cloudflare's and Kasada's.
 - CRW reports the real page's status after AWS WAF's challenge, a 202, clears.
 
+### `mcp-data-tools-probe.patch`
+
+Lists the MCP server's two data tools, `crw_find_data` and `crw_get_data`, only
+when the API it proxies serves data sources. CRW 0.41 added them to every
+proxy-mode server. They fetch a manifest from `/v1/data/manifest`, which only
+the managed API serves, so against a server built here every call ended in
+`data_sources_unavailable`. At startup, the proxy asks for the manifest once. A
+404 hides both tools, and their sentence in the server instructions. Any other
+answer, or no answer, keeps them listed.
+
 ### `render-browser-first.patch`
 
 Sends a page to the browser first. Upstream fetched every page once over plain HTTP
@@ -257,6 +268,21 @@ A page also counts as a block by its HTTP status, because eBay's first answer to
 fresh profile is a 403 that only reads "Something went wrong." A 429 doesn't count
 on its status alone, because another request right away doesn't help.
 
+### `skeleton-wait-fast-ready.patch`
+
+Skips CRW 0.41's skeleton wait when `CHROME_FAST_READY` is on, as it is here,
+or when the request sets `waitFor`. That wait starts when a page shows three or
+more elements whose class names say skeleton, placeholder, or shimmer, and
+holds until the region around them gains 200 characters of text, or for 9
+seconds. Upstream added it for a flight search whose result list fills 6 to 18
+seconds after the page loads. On a JB Hi-Fi product page, whose placeholders
+are images and prices that never gain text, it held the full 9 seconds, and
+1.5 seconds on a Reddit page that sat still. Under load, those 9 seconds tipped
+the render past the page timeout and into a plain-HTTP fallback. Fast ready
+reads a page as soon as its text is there, which is the opposite choice, so
+the two don't combine. Turn `CRW_RENDERER__CHROME_FAST_READY` off to get the
+wait back.
+
 ### `status-not-found.patch`
 
 Treats a 404 or 410 as the answer, so a dead link fails as
@@ -304,3 +330,7 @@ is busy, `up-stealth` offers the next free one and saves the choice to `.env`.
 - Codex gets `tool_timeout_sec = 300`, because Camoufox scrapes can outlast its
   60-second default.
 - Every config file edit is shown as a diff and backed up first.
+- The skills that `install-skills.sh` copies into `~/.claude/skills`,
+  `~/.agents/skills`, and `~/.gemini/config/skills` are CRW's own, from `skills/`
+  in its repository, unchanged. The two it leaves out, `crw-migrate` and
+  `crw-self-host`, cover moving to CRW or running it, not using this stack.

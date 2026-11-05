@@ -47,8 +47,7 @@ build-camoufox arch=host_arch:
 
 # Build the native crw-mcp proxy binary into bin/
 build-mcp:
-    @scripts/fetch-sources.sh --quiet crw
-    @source scripts/lib.sh && cd "$(src_dir crw)" && cargo build --quiet --release --locked -p crw-mcp --no-default-features
+    @scripts/build-mcp.sh
     @# Copy to a new file and rename it into place: overwriting a binary macOS
     @# has already run keeps its old signature cached, and the kernel then kills
     @# the new one on launch (exit 137), so the MCP clients fail to connect.
@@ -86,37 +85,53 @@ caps:
 
 # ── MCP ──────────────────────────────────────────────────────────────────
 
-# Install the crw MCP server into Claude, Codex and Antigravity (asks first)  [--dry-run] [--yes]
+# Install the crw MCP server and crw's agent skills into Claude, Codex and Antigravity (asks first)  [--dry-run] [--yes]
 install *flags: build-mcp
     @scripts/install-mcp.sh install all {{ flags }}
+    @scripts/install-skills.sh install all {{ flags }}
 
 # Install into Claude Code + Claude Desktop (asks first)  [--dry-run] [--yes]
 install-claude *flags: build-mcp
     @scripts/install-mcp.sh install claude {{ flags }}
+    @scripts/install-skills.sh install claude {{ flags }}
 
 # Install into Codex CLI + ChatGPT desktop (asks first)  [--dry-run] [--yes]
 install-codex *flags: build-mcp
     @scripts/install-mcp.sh install codex {{ flags }}
+    @scripts/install-skills.sh install codex {{ flags }}
 
 # Install into the Antigravity app, IDE and agy (asks first)  [--dry-run] [--yes]
 install-antigravity *flags: build-mcp
     @scripts/install-mcp.sh install antigravity {{ flags }}
+    @scripts/install-skills.sh install antigravity {{ flags }}
 
-# Remove the crw MCP server from Claude, Codex and Antigravity (asks first)  [--dry-run] [--yes]
+# Remove the crw MCP server and skills from Claude, Codex and Antigravity (asks first)  [--dry-run] [--yes]
 uninstall *flags:
     @scripts/install-mcp.sh uninstall all {{ flags }}
+    @scripts/install-skills.sh uninstall all {{ flags }}
 
 # Remove from Claude Code + Claude Desktop (asks first)  [--dry-run] [--yes]
 uninstall-claude *flags:
     @scripts/install-mcp.sh uninstall claude {{ flags }}
+    @scripts/install-skills.sh uninstall claude {{ flags }}
 
 # Remove from Codex CLI + ChatGPT desktop (asks first)  [--dry-run] [--yes]
 uninstall-codex *flags:
     @scripts/install-mcp.sh uninstall codex {{ flags }}
+    @scripts/install-skills.sh uninstall codex {{ flags }}
 
 # Remove from the Antigravity app, IDE and agy (asks first)  [--dry-run] [--yes]
 uninstall-antigravity *flags:
     @scripts/install-mcp.sh uninstall antigravity {{ flags }}
+    @scripts/install-skills.sh uninstall antigravity {{ flags }}
+
+# Install only the skills (when to search, scrape, map, crawl, parse, extract)  [claude|codex|antigravity|all] [--dry-run] [--yes]
+install-skills target="all" *flags: fetch
+    @scripts/install-skills.sh install {{ target }} {{ flags }}
+
+# Remove only the skills  [claude|codex|antigravity|all] [--dry-run] [--yes]
+uninstall-skills target="all" *flags:
+    @scripts/install-skills.sh uninstall {{ target }} {{ flags }}
 
 # ── release ──────────────────────────────────────────────────────────────
 

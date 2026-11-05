@@ -10,7 +10,8 @@ crw-build-aio-mcp runs [CRW](https://github.com/fastcrw/crw), a
 Firecrawl-compatible web scraper, on your own machine with all three of its
 stealth tiers turned on. It also registers CRW's Model Context Protocol (MCP)
 server, so Claude, Codex, and Antigravity can scrape and search the web through
-your local stack.
+your local stack, and installs CRW's agent skills, which teach them which tool a
+task needs: search, scrape, map, crawl, parse, or extract.
 
 | Tier | Description | Where it runs |
 |---|---|---|

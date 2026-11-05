@@ -42,7 +42,8 @@ Install the following:
    just test-stealth
    ```
 
-1. Register the MCP server with Claude, Codex, and Antigravity:
+1. Register the MCP server, and install CRW's agent skills, with Claude, Codex,
+   and Antigravity:
 
    ```sh
    just install
@@ -108,11 +109,12 @@ The following differs from a Mac:
 | `build-all` | Build multi-architecture images for both architectures. |
 | `push` | Run `build-all`, and then push to `$REGISTRY`. |
 | `build-camoufox [ARCH]` | Build only the Camoufox zip in `~/.crw/dist`. |
-| `build-mcp` | Build the native `bin/crw-mcp`, a proxy-only build. |
+| `build-mcp` | Build the native `bin/crw-mcp`, a proxy-only build, from the patched checkout. |
 | `fetch` | Clone any missing upstream into `~/.crw/src`. |
 | `update` | Fast-forward every upstream, and then run `build`. |
-| `install`, `install-claude`, `install-codex`, `install-antigravity` | Register the MCP server. Each takes `--dry-run` and `--yes`. |
-| `uninstall`, `uninstall-claude`, `uninstall-codex`, `uninstall-antigravity` | Remove the MCP server. Each takes `--dry-run` and `--yes`. |
+| `install`, `install-claude`, `install-codex`, `install-antigravity` | Register the MCP server and install the skills. Each takes `--dry-run` and `--yes`. |
+| `uninstall`, `uninstall-claude`, `uninstall-codex`, `uninstall-antigravity` | Remove the MCP server and the skills. Each takes `--dry-run` and `--yes`. |
+| `install-skills [TARGET]`, `uninstall-skills [TARGET]` | Only the skills. `TARGET` is `claude`, `codex`, `antigravity`, or `all`, the default. Each takes `--dry-run` and `--yes`. |
 | `test-stealth`, `test-stealth-claude`, `test-stealth-codex`, `test-stealth-antigravity` | Check the tiers over HTTP or through an MCP client. |
 | `test-patches` | Run the offline unit tests that the CRW patches add. Needs `cargo`. CI runs it on every pull request. |
 | `lint-docs` | Check the docs against the Google style with Vale. |
