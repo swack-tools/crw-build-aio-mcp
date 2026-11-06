@@ -59,6 +59,10 @@ services:
       # never settles. An anti-bot wall still gets its 24s below (issue #18).
       - CRW_RENDERER__CHROME_FAST_READY=true
       - CRW_RENDERER__CHROME_SPA_SELECTOR_MAX_MS=3000
+      # A first visit a site still turns away after its cookies were dropped is
+      # its verdict on the profile: close Chrome, and chrome-stealth's restart
+      # policy brings it back with a fresh one (see docs/how-it-works.md).
+      - CRW_CHROME_RESTART_ON_WALLED_RESET=true
       # Pages load as they would for a person. Upstream blocks images, fonts,
       # media and analytics to save time, and pages can tell (a missing image
       # has no size; a bot check's script may be on the blocked list).
