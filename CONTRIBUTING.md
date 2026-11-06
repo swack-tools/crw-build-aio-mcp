@@ -31,6 +31,13 @@ build on an earlier one.
    means that the regenerated patch doesn't cover all your edits.
 1. If the patch adds tests, add them to `scripts/test-patches.sh`.
 
+The patches apply to the CRW rev in `patches/crw/UPSTREAM`, and the Tests
+workflow checks them there. To move the stack to a newer CRW, fast-forward the
+clone with `scripts/fetch-sources.sh --update crw`, refresh any patch that no
+longer applies, and write the new rev to that file. The nightly image build
+clones upstream's head, so it is the first to stop when upstream moves under a
+patch.
+
 ## Test your change
 
 | Command | What it checks | Needs |

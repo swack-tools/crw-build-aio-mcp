@@ -1,9 +1,11 @@
 name: Tests
 
-# Applies patches/crw/ to crw's current head and runs the unit tests those
-# patches add (scripts/test-patches.sh), such as the eBay reload checks. They
-# run against mock servers, never live sites. A red run can also mean upstream
-# moved under a patch; the nightly image build would stop on that too.
+# Applies patches/crw/ to the CRW rev in patches/crw/UPSTREAM, the one the
+# stack was last moved to, and runs the unit tests those patches add
+# (scripts/test-patches.sh), such as the eBay reload checks. They run against
+# mock servers, never live sites. A pull request's own change is what this run
+# tests; the nightly image build clones upstream's head and is the alarm for a
+# patch that no longer applies there. Bump UPSTREAM when moving CRW.
 
 on:
   pull_request:
@@ -28,8 +30,10 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
           cargo --version
-      - name: Clone crw
-        run: scripts/fetch-sources.sh crw
+      - name: Clone crw at the rev the patches apply to
+        run: |
+          echo "CRW_REF=$(cat patches/crw/UPSTREAM)" >> "$GITHUB_ENV"
+          CRW_REF="$(cat patches/crw/UPSTREAM)" scripts/fetch-sources.sh crw
       - name: Restore cargo cache
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
         with:
