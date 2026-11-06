@@ -1,7 +1,7 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
-@@ -102,6 +102,17 @@ const SETTLE_MAX_MS: u64 = 4000;
+@@ -109,6 +109,17 @@ const SETTLE_MAX_MS: u64 = 4000;
  /// `RELOAD_LOAD_MAX` to load before the settle above.
  const RELOAD_PAUSE: Duration = Duration::from_millis(1500);
  const RELOAD_LOAD_MAX: Duration = Duration::from_secs(12);
@@ -19,10 +19,10 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// How long a JavaScript dialog stays open before crw accepts it.
  const DIALOG_ANSWER_DELAY: Duration = Duration::from_millis(700);
  /// Max iterations for the auto-scroll lazy-load pass. 12 viewports usually
-@@ -557,6 +568,15 @@ pub struct CdpRenderer {
-     fast_ready: bool,
-     /// UA for `Network.setUserAgentOverride`; empty = no override (browser default).
-     user_agent: String,
+@@ -567,6 +578,15 @@ pub struct CdpRenderer {
+     /// The browser's own UA, presentable form, read once when the tier UA is
+     /// not a browser UA. See [`Self::tier_user_agent`].
+     native_ua: Arc<OnceCell<String>>,
 +    /// When each host last had its cookies and storage dropped because a wall
 +    /// outlasted the reload (see `WALL_RESET_COOLDOWN`).
 +    wall_resets: Arc<StdMutex<HashMap<String, Instant>>>,
@@ -35,16 +35,17 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  }
  
  impl CdpRenderer {
-@@ -591,12 +611,20 @@ impl CdpRenderer {
-             spa_selector_max: Duration::from_millis(SPA_SELECTOR_MAX_MS),
+@@ -602,6 +622,9 @@ impl CdpRenderer {
              fast_ready: false,
              user_agent: String::new(),
+             native_ua: Arc::new(OnceCell::new()),
 +            wall_resets: Arc::default(),
 +            restart_on_walled_reset: env_flag("CRW_CHROME_RESTART_ON_WALLED_RESET"),
 +            browser_restart: Arc::default(),
          }
      }
  
+@@ -651,6 +674,11 @@ impl CdpRenderer {
      /// Enable the event-driven earliest-ready exit (latency-qn). Quality-safe:
      /// keeps a mandatory body-text content floor so it never snapshots an empty
      /// shell; only changes WHEN a ready page is detected (sooner).
@@ -56,7 +57,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      pub fn with_fast_ready(mut self, on: bool) -> Self {
          self.fast_ready = on;
          self
-@@ -2241,6 +2269,40 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
+@@ -2351,6 +2379,40 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
              && named.signal != crw_extract::antibot::AntibotSignal::StructuralFailure)
  }
  
@@ -97,7 +98,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// Is `document.contentType` one a page is read from? Markup, text and data
  /// are; a PDF, an image or a video is not.
  fn is_page_content_type(content_type: &str) -> bool {
-@@ -4082,6 +4144,60 @@ impl CdpRenderer {
+@@ -4230,6 +4292,60 @@ impl CdpRenderer {
              tokio::time::sleep(RELOAD_PAUSE).await;
              html = self.reload_and_read(conn, session_id, net).await?;
              html = self.wait_out_challenge(conn, session_id, url, html).await?;
@@ -158,7 +159,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          }
          let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
  
-@@ -4102,6 +4218,111 @@ impl CdpRenderer {
+@@ -4250,6 +4366,111 @@ impl CdpRenderer {
          Ok(html)
      }
  
@@ -270,7 +271,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      /// The HTTP status of the document now in the page, if it can be read.
      async fn document_status(conn: &CdpConnection, session_id: &str) -> Option<u16> {
          conn.send_recv(
-@@ -4181,25 +4402,36 @@ impl CdpRenderer {
+@@ -4329,25 +4550,36 @@ impl CdpRenderer {
              self.page_timeout,
          )
          .await?;
@@ -322,7 +323,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      }
  
      /// Measure the content box (Page.getLayoutMetrics) and decide whether a
-@@ -5670,6 +5902,50 @@ mod tests {
+@@ -5969,6 +6201,50 @@ mod tests {
          assert!(!r.skeleton_wait_applies(Some(500)));
      }
  

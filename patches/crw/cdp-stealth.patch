@@ -1,8 +1,7 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
-index c0ebe4f..4659c25 100644
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
-@@ -89,6 +89,16 @@ const SPA_CONTENT_FLOOR_CHARS: i64 = 200;
+@@ -96,6 +96,16 @@ const SPA_CONTENT_FLOOR_CHARS: i64 = 200;
  /// chatty pages (analytics/polling keep ≥1) so the old ≤0 idle-exit never
  /// triggered → 8s ceiling burns. ≤2 is the correct "settled" signal.
  const ALMOST_IDLE_MAX_INFLIGHT: i64 = 2;
@@ -19,7 +18,7 @@ index c0ebe4f..4659c25 100644
  /// Max iterations for the auto-scroll lazy-load pass. 12 viewports usually
  /// covers infinite-scroll feeds without making it a crawl.
  const AUTO_SCROLL_MAX_STEPS: u32 = 12;
-@@ -129,6 +139,18 @@ const NET_CAPTURE_GETBODY_TIMEOUT: Duration = Duration::from_millis(800);
+@@ -136,6 +146,18 @@ const NET_CAPTURE_GETBODY_TIMEOUT: Duration = Duration::from_millis(800);
  /// NET_CAPTURE_MAX_TOTAL_BYTES. Override: CRW_RENDERER__SCREENSHOT_MAX_HEIGHT_PX.
  const SCREENSHOT_MAX_HEIGHT_PX: f64 = 15_000.0;
  
@@ -38,7 +37,7 @@ index c0ebe4f..4659c25 100644
  fn screenshot_max_height_px() -> f64 {
      std::env::var("CRW_RENDERER__SCREENSHOT_MAX_HEIGHT_PX")
          .ok()
-@@ -143,54 +165,87 @@ fn screenshot_max_height_px() -> f64 {
+@@ -150,54 +172,87 @@ fn screenshot_max_height_px() -> f64 {
  /// Every section is its own `try`: one property a renderer refuses to redefine
  /// (Lightpanda throws `Cannot redefine property: webdriver` in iframes) must not
  /// abort the sections after it.
@@ -152,7 +151,7 @@ index c0ebe4f..4659c25 100644
          Object.defineProperty(HTMLIFrameElement.prototype, 'contentWindow', {
              get: function() {
                  const w = origHTMLElement.call(this);
-@@ -203,37 +258,23 @@ try {
+@@ -210,37 +265,23 @@ try {
  
  // 7. Fix broken toString for overridden functions (anti-detection fingerprinting)
  try {
@@ -205,7 +204,7 @@ index c0ebe4f..4659c25 100644
  "#;
  
  /// One-shot consent banner / CMP dismissal. Runs once after page load,
-@@ -1474,6 +1515,28 @@ async fn run_intercept_pump(
+@@ -1564,6 +1605,28 @@ async fn run_intercept_pump(
              }
              continue;
          }
@@ -234,7 +233,7 @@ index c0ebe4f..4659c25 100644
          if ev.method != "Fetch.requestPaused" {
              continue;
          }
-@@ -2127,11 +2190,21 @@ fn is_challenge_page(html: &str) -> bool {
+@@ -2237,11 +2300,21 @@ fn is_challenge_page(html: &str) -> bool {
          return false;
      }
      let lower = html.to_lowercase();
@@ -258,7 +257,7 @@ index c0ebe4f..4659c25 100644
          || lower.contains("attention required")
  }
  
-@@ -3025,7 +3098,10 @@ impl CdpRenderer {
+@@ -3207,7 +3280,10 @@ impl CdpRenderer {
              .ok_or_else(|| CrwError::RendererError("CDP attach did not return sessionId".into()))?
              .to_string();
  
@@ -270,7 +269,7 @@ index c0ebe4f..4659c25 100644
              conn.send_recv(
                  method,
                  serde_json::json!({}),
-@@ -3103,7 +3179,26 @@ impl CdpRenderer {
+@@ -3289,7 +3365,26 @@ impl CdpRenderer {
          // browser's own", so the language lands without touching the UA, and
          // the header stays in step with the script and the locale override.
          let accept_language = lang_locale.map(|l| l.cdp_accept_language());
@@ -298,7 +297,7 @@ index c0ebe4f..4659c25 100644
              conn.send_recv(
                  "Network.setUserAgentOverride",
                  ua_override_params(effective_ua, accept_language.as_deref()),
-@@ -3296,7 +3391,12 @@ impl CdpRenderer {
+@@ -3500,7 +3595,12 @@ impl CdpRenderer {
          // A failure here propagates: a tier whose destinations we cannot check
          // must not be used, and the ladder falls through to the next one.
          let intercept_active = self.intercept_active_for(url);
@@ -312,7 +311,7 @@ index c0ebe4f..4659c25 100644
              let mut params = serde_json::Map::new();
              params.insert(
                  "patterns".into(),
-@@ -3323,18 +3423,21 @@ impl CdpRenderer {
+@@ -3527,18 +3627,21 @@ impl CdpRenderer {
          // and a child it cannot intercept is closed rather than resumed. Best-effort — a browser without
          // the command keeps the previous behaviour rather than failing the
          // render.
@@ -346,8 +345,8 @@ index c0ebe4f..4659c25 100644
          // Not repeated at browser scope. Service workers and shared workers are
          // not children of the page target, so this does not reach them, and
          // their `fetch` is the one remaining path that can carry a response back
-@@ -3421,6 +3524,29 @@ impl CdpRenderer {
-                     (html, true)
+@@ -3642,6 +3745,29 @@ impl CdpRenderer {
+                     (html, true, settled)
                  }
              };
 +            // The status above is the first document's. An anti-bot challenge
@@ -376,7 +375,7 @@ index c0ebe4f..4659c25 100644
              // Screenshot capture runs AFTER the page-load budget race resolves,
              // with its own timeout. A full-page capture of a heavy page must not
              // be cancelled by the nav budget (which closes the WS mid-capture and
-@@ -3700,6 +3826,15 @@ impl CdpRenderer {
+@@ -3922,6 +4048,15 @@ impl CdpRenderer {
          {
              tracing::debug!(url = %LogUrl(&url), "SPA selector poll exhausted budget");
          }
@@ -391,8 +390,8 @@ index c0ebe4f..4659c25 100644
 +        }
          let t_selector_ms = _sel_t.elapsed().as_millis() as u64;
  
-         // 4. Get rendered HTML.
-@@ -4811,8 +4946,17 @@ mod tests {
+         // 3b. Skeleton region still filling → wait for its data. 4b only sees
+@@ -5366,8 +5501,17 @@ mod tests {
      }
  
      #[test]
@@ -412,7 +411,7 @@ index c0ebe4f..4659c25 100644
      }
  
      #[test]
-@@ -4821,13 +4965,26 @@ mod tests {
+@@ -5376,13 +5520,26 @@ mod tests {
      }
  
      #[test]
