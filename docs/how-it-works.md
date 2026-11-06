@@ -328,6 +328,13 @@ scrape that found the wall fails as blocked, as it would have, and the log says
 `closing the browser for a fresh profile`. At most once every four hours. Off
 by default, since a browser that nothing restarts would stay closed.
 
+A second drop for one host within five minutes of the last closes the browser
+the same way, instead of dropping the cookies again: the fresh session did not
+hold, so the profile is what the site judges. Both of eBay's bursts opened with
+two drops under two minutes apart, and healthy hours never had two within
+seventeen; until then a burst cost a scrape every minute or two, each a wall
+that persisted inside the cooldown, while every drop's own first visit passed.
+
 ### `xhr-prose-only.patch`
 
 One of CRW's fallbacks for a page whose text loads later builds markdown from long

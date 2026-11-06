@@ -16,8 +16,9 @@
 #     unless it is a block too, and no browser runs; a clean answer stays on
 #     plain HTTP.
 #   eBay, wall-cookie-reset.patch: a host whose wall outlasts the reload has
-#     its cookies dropped once, not again within the cooldown, and never for
-#     a string that isn't a URL; a reload's snapshot without a <body> is of a
+#     its cookies dropped once, not again within the cooldown, as a burst when
+#     the last drop was within the window, and never for a string that isn't a
+#     URL; a reload's snapshot without a <body> is of a
 #     page still being parsed; the browser is closed for a fresh profile once
 #     per cooldown, and only when asked.
 #   Skeleton wait, skeleton-wait-fast-ready.patch: CRW 0.41's wait for a
