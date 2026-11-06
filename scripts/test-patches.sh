@@ -22,7 +22,8 @@
 #     per cooldown, and only when asked.
 #   Skeleton wait, skeleton-wait-fast-ready.patch: CRW 0.41's wait for a
 #     page's skeleton placeholders to fill is skipped with CHROME_FAST_READY,
-#     or a caller's waitFor.
+#     or a caller's waitFor; and the guard sits on that wait in the patched
+#     source, not on upstream's consent dismissal next to it.
 #   MCP data tools, mcp-data-tools-probe.patch: a proxy to an API whose
 #     /v1/data/manifest is a 404 lists neither data tool and refuses a call
 #     to one; any other answer, or none, keeps them listed.
@@ -51,6 +52,15 @@ MCP_TESTS=(
 command -v cargo >/dev/null || die "cargo is not installed: see https://rustup.rs"
 "$ROOT/scripts/fetch-sources.sh" crw
 apply_patches crw
+
+# A fuzzy refresh can land a hunk on the wrong call site and still compile: the
+# fast-ready guard once moved from the skeleton wait to upstream's consent
+# dismissal, which the helper's unit test cannot see. Check the call sites.
+cdp="$(src_dir crw)/crates/crw-renderer/src/cdp.rs"
+grep -A1 'if self.skeleton_wait_applies(wait_for_ms) {' "$cdp" | grep -q '_sk_t' ||
+  die "skeleton-wait-fast-ready.patch: the fast-ready guard is not on the skeleton wait"
+grep -B1 'Self::dismiss_consent(conn, session_id).await;' "$cdp" | grep -q 'if wait_for_ms.is_none() {' ||
+  die "skeleton-wait-fast-ready.patch: consent dismissal must stay auto-mode only, not fast-ready"
 
 out="$(mktemp)"
 trap 'rm -f "$out"' EXIT

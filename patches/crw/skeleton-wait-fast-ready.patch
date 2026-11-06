@@ -18,15 +18,15 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      /// Set the User-Agent the CDP renderer presents (via
      /// `Network.setUserAgentOverride`). Pass the same `effective_ua` the HTTP
      /// fetcher uses so a JS-rendered page sees a modern UA, not the browser's
-@@ -4068,7 +4078,7 @@ impl CdpRenderer {
-         // the SPA-readiness threshold prematurely (the banner copy alone
-         // can clear 800 chars). Auto-mode only: if the caller pinned a
-         // wait, they own the timing.
+@@ -4111,7 +4121,7 @@ impl CdpRenderer {
+         // a grid can fill between a snapshot and the probe, and the probe then
+         // sees nothing to wait for while the snapshot still holds the
+         // placeholders (jbhifi, after the poll hands over).
 -        if wait_for_ms.is_none() {
 +        if self.skeleton_wait_applies(wait_for_ms) {
-             Self::dismiss_consent(conn, session_id).await;
-         }
- 
+             let _sk_t = Instant::now();
+             Self::wait_for_skeleton_fill(conn, session_id, url, self.page_timeout).await;
+             t_stability_ms += _sk_t.elapsed().as_millis() as u64;
 @@ -5949,6 +5959,16 @@ mod tests {
          assert!(!r.fast_ready);
      }
