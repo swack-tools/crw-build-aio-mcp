@@ -1,8 +1,7 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
-index 977e00c..de9ca6f 100644
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
-@@ -602,6 +602,16 @@ impl CdpRenderer {
+@@ -656,6 +656,16 @@ impl CdpRenderer {
          self
      }
  
@@ -19,16 +18,16 @@ index 977e00c..de9ca6f 100644
      /// Set the User-Agent the CDP renderer presents (via
      /// `Network.setUserAgentOverride`). Pass the same `effective_ua` the HTTP
      /// fetcher uses so a JS-rendered page sees a modern UA, not the browser's
-@@ -3976,7 +3986,7 @@ impl CdpRenderer {
-         // kiwi.com the selector poll above exits at ~3s on 1.2k chars of
-         // filters and footer, while the result list is still five grey
-         // placeholder cards that fill at 6-18s.
+@@ -4111,7 +4121,7 @@ impl CdpRenderer {
+         // a grid can fill between a snapshot and the probe, and the probe then
+         // sees nothing to wait for while the snapshot still holds the
+         // placeholders (jbhifi, after the poll hands over).
 -        if wait_for_ms.is_none() {
 +        if self.skeleton_wait_applies(wait_for_ms) {
              let _sk_t = Instant::now();
-             if Self::wait_for_skeleton_fill(conn, session_id, url, self.page_timeout).await {
-                 html = Self::eval_html(conn, session_id, self.page_timeout).await?;
-@@ -5648,6 +5658,16 @@ mod tests {
+             Self::wait_for_skeleton_fill(conn, session_id, url, self.page_timeout).await;
+             t_stability_ms += _sk_t.elapsed().as_millis() as u64;
+@@ -5949,6 +5959,16 @@ mod tests {
          assert!(!r.fast_ready);
      }
  

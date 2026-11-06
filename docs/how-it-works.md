@@ -89,6 +89,7 @@ These settings apply to a scrape that sets nothing, as an MCP client sends it.
 | `CRW_RENDERER__CAMOUFOX__INCLUDE_IN_AUTO=true` | CRW tries Camoufox when Chrome is blocked. | |
 | `CRW_RENDERER__RENDER_JS_DEFAULT=true` | Every page renders in a browser, which costs a second or more per page over plain HTTP. A request can still set `renderJs: false` to skip the browser, or `renderer: "impersonated-http"` to pick that tier. | Upstream starts with plain HTTP and only renders pages that look unfinished, so a page that fills itself in after load, such as a bot check's verdict, came back as its empty shell. A page that draws its content with JavaScript, such as a shop's product grid, comes back the same way over HTTP. |
 | `CRW_RENDERER__CHROME_FAST_READY=true` and `CRW_RENDERER__CHROME_SPA_SELECTOR_MAX_MS=3000` | After a page loads, CRW reads it as soon as its text is there and the network has settled, and waits at most 3 seconds for a page that never settles. | Upstream waits for a `main`, `article`, or `#content` element for up to 8 seconds, and a page without one, such as example.com, always waited the full 8 seconds. Upstream rarely pays this, since it serves such pages over HTTP; this stack renders every page, so it paid it on every page without such an element. A request that sets `waitFor` skips this wait and the other automatic ones, such as scrolling for lazy-loaded content. |
+| `CRW_CHROME_RESTART_ON_WALLED_RESET=true` | When a site still turns a first visit away after CRW dropped its cookies, CRW closes Chrome, and the container comes back with a fresh profile (see `wall-cookie-reset.patch`). | Off by default: a browser that nothing restarts would stay closed. |
 | `CRW_RENDERER__CHROME_INTERCEPT_RESOURCES=false` | Pages load images, fonts, and analytics as they do for a person. | Upstream blocks them to save time, and pages can tell. |
 | `CRW_RENDERER__CHROME_CHALLENGE_MAX_RETRIES=8` and `CRW_RENDERER__CHROME_NAV_BUDGET_MS=40000` | An anti-bot challenge gets up to 24 seconds to clear. | Upstream checks once, inside a 12-second page budget. |
 | `CRW_RENDERER__CHROME_OUTBOUND_CHECK=false` | Chrome's requests go straight out, as in a person's browser. Chrome's own Local Network Access still asks before a public page reaches a private address. | Upstream pauses each request to check it against private network ranges, which breaks some anti-bot scripts. Kasada's cleared one cold visit in four with the check and every one without it. |
@@ -315,6 +316,17 @@ Chrome's parser gives every finished HTML document one: the site sent the
 reloaded page on to another, which is read once it has loaded. eBay did that to
 one first visit in ten, and the head-only snapshot had failed the scrape as a
 block.
+
+A first visit the site turns away too, through the reloads a first visit gets,
+is its verdict on the browser profile, which no cookie drop reaches: eBay's
+Akamai reached that after about ten hours on one profile, twice, and from then
+on walled half of every session within seconds. With
+`CRW_CHROME_RESTART_ON_WALLED_RESET=true`, as the compose file sets, CRW then
+closes Chrome over CDP; chrome-stealth's container exits with it and is back on
+a fresh profile in about eight seconds, and the next scrape reconnects. The
+scrape that found the wall fails as blocked, as it would have, and the log says
+`closing the browser for a fresh profile`. At most once every four hours. Off
+by default, since a browser that nothing restarts would stay closed.
 
 ### `xhr-prose-only.patch`
 

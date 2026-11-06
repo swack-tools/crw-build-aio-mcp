@@ -1,7 +1,7 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
-@@ -102,6 +102,12 @@ const SETTLE_MAX_MS: u64 = 4000;
+@@ -109,6 +109,17 @@ const SETTLE_MAX_MS: u64 = 4000;
  /// `RELOAD_LOAD_MAX` to load before the settle above.
  const RELOAD_PAUSE: Duration = Duration::from_millis(1500);
  const RELOAD_LOAD_MAX: Duration = Duration::from_secs(12);
@@ -11,28 +11,53 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +/// one, while a ten-minute wait left six scrapes to fail when eBay soured a
 +/// fresh session within seconds. A site that is down costs one reset a minute.
 +const WALL_RESET_COOLDOWN: Duration = Duration::from_secs(60);
++/// A first visit the site turns away too is its verdict on the browser profile,
++/// which no cookie drop reaches. With `restart_on_walled_reset`, the browser is
++/// then closed; chrome-stealth's container exits with it and comes back with a
++/// fresh profile in seconds. At most once in this long.
++const BROWSER_RESTART_COOLDOWN: Duration = Duration::from_secs(4 * 60 * 60);
  /// How long a JavaScript dialog stays open before crw accepts it.
  const DIALOG_ANSWER_DELAY: Duration = Duration::from_millis(700);
  /// Max iterations for the auto-scroll lazy-load pass. 12 viewports usually
-@@ -557,6 +563,9 @@ pub struct CdpRenderer {
-     fast_ready: bool,
-     /// UA for `Network.setUserAgentOverride`; empty = no override (browser default).
-     user_agent: String,
+@@ -567,6 +578,15 @@ pub struct CdpRenderer {
+     /// The browser's own UA, presentable form, read once when the tier UA is
+     /// not a browser UA. See [`Self::tier_user_agent`].
+     native_ua: Arc<OnceCell<String>>,
 +    /// When each host last had its cookies and storage dropped because a wall
 +    /// outlasted the reload (see `WALL_RESET_COOLDOWN`).
 +    wall_resets: Arc<StdMutex<HashMap<String, Instant>>>,
++    /// Close the browser when a site turns away the first visit after its
++    /// cookies were dropped (see `BROWSER_RESTART_COOLDOWN`). Off unless asked,
++    /// since a browser that nothing restarts would stay closed.
++    restart_on_walled_reset: bool,
++    /// When the browser was last closed for that.
++    browser_restart: Arc<StdMutex<Option<Instant>>>,
  }
  
  impl CdpRenderer {
-@@ -591,6 +600,7 @@ impl CdpRenderer {
-             spa_selector_max: Duration::from_millis(SPA_SELECTOR_MAX_MS),
+@@ -602,6 +622,9 @@ impl CdpRenderer {
              fast_ready: false,
              user_agent: String::new(),
+             native_ua: Arc::new(OnceCell::new()),
 +            wall_resets: Arc::default(),
++            restart_on_walled_reset: env_flag("CRW_CHROME_RESTART_ON_WALLED_RESET"),
++            browser_restart: Arc::default(),
          }
      }
  
-@@ -2241,6 +2251,25 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
+@@ -651,6 +674,11 @@ impl CdpRenderer {
+     /// Enable the event-driven earliest-ready exit (latency-qn). Quality-safe:
+     /// keeps a mandatory body-text content floor so it never snapshots an empty
+     /// shell; only changes WHEN a ready page is detected (sooner).
++    pub fn with_restart_on_walled_reset(mut self, on: bool) -> Self {
++        self.restart_on_walled_reset = on;
++        self
++    }
++
+     pub fn with_fast_ready(mut self, on: bool) -> Self {
+         self.fast_ready = on;
+         self
+@@ -2351,6 +2379,40 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
              && named.signal != crw_extract::antibot::AntibotSignal::StructuralFailure)
  }
  
@@ -55,10 +80,25 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +    true
 +}
 +
++/// Whether the browser may be closed for a fresh profile now: when it wasn't
++/// within `BROWSER_RESTART_COOLDOWN`. Records the close when so.
++fn browser_restart_due(last: &mut Option<Instant>, now: Instant) -> bool {
++    if last.is_some_and(|at| now.saturating_duration_since(at) < BROWSER_RESTART_COOLDOWN) {
++        return false;
++    }
++    *last = Some(now);
++    true
++}
++
++/// Is the environment variable `name` set to `1` or `true`?
++fn env_flag(name: &str) -> bool {
++    std::env::var(name).is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
++}
++
  /// Is `document.contentType` one a page is read from? Markup, text and data
  /// are; a PDF, an image or a video is not.
  fn is_page_content_type(content_type: &str) -> bool {
-@@ -4082,6 +4111,39 @@ impl CdpRenderer {
+@@ -4230,6 +4292,60 @@ impl CdpRenderer {
              tokio::time::sleep(RELOAD_PAUSE).await;
              html = self.reload_and_read(conn, session_id, net).await?;
              html = self.wait_out_challenge(conn, session_id, url, html).await?;
@@ -94,11 +134,32 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +                        break;
 +                    }
 +                }
++                // 8. A first visit the site turns away too, through the
++                // reloads a first visit gets, is its verdict on the browser
++                // profile, which no cookie drop reaches: eBay's Akamai reached
++                // that after about ten hours on one profile, twice, and from
++                // then on walled half of every session within seconds. Close
++                // the browser: chrome-stealth's container exits with it and is
++                // back on a fresh profile in seconds, and the next scrape
++                // reconnects. This scrape fails as blocked, as it would have.
++                // Opt-in, since a browser nothing restarts would stay closed;
++                // once per BROWSER_RESTART_COOLDOWN.
++                if is_revisitable_wall(Self::document_status(conn, session_id).await, &html)
++                    && self.browser_restart_due_now()
++                {
++                    tracing::warn!(
++                        url = %LogUrl(&here),
++                        "Anti-bot wall outlasted the first visit after the reset; closing the browser for a fresh profile"
++                    );
++                    let _ = conn
++                        .send_recv("Browser.close", serde_json::json!({}), None, Duration::from_secs(3))
++                        .await;
++                }
 +            }
          }
          let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
  
-@@ -4102,6 +4164,101 @@ impl CdpRenderer {
+@@ -4250,6 +4366,111 @@ impl CdpRenderer {
          Ok(html)
      }
  
@@ -127,6 +188,16 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +        };
 +        let mut resets = self.wall_resets.lock().unwrap_or_else(|e| e.into_inner());
 +        wall_reset_due(&mut resets, &host, Instant::now())
++    }
++
++    /// Whether to close the browser for a fresh profile now: when asked to,
++    /// and not within `BROWSER_RESTART_COOLDOWN` of the last time.
++    fn browser_restart_due_now(&self) -> bool {
++        self.restart_on_walled_reset
++            && browser_restart_due(
++                &mut self.browser_restart.lock().unwrap_or_else(|e| e.into_inner()),
++                Instant::now(),
++            )
 +    }
 +
 +    /// Drop the cookies `url` would be sent, and its origin's storage, so the
@@ -200,7 +271,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      /// The HTTP status of the document now in the page, if it can be read.
      async fn document_status(conn: &CdpConnection, session_id: &str) -> Option<u16> {
          conn.send_recv(
-@@ -4181,25 +4338,36 @@ impl CdpRenderer {
+@@ -4329,25 +4550,36 @@ impl CdpRenderer {
              self.page_timeout,
          )
          .await?;
@@ -252,7 +323,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      }
  
      /// Measure the content box (Page.getLayoutMetrics) and decide whether a
-@@ -5670,6 +5838,33 @@ mod tests {
+@@ -5969,6 +6201,50 @@ mod tests {
          assert!(!r.skeleton_wait_applies(Some(500)));
      }
  
@@ -281,6 +352,23 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +        assert!(has_body("<html><head></head><body class=\"a\">"));
 +        assert!(!has_body("<html><head><script>var a = 1;</script></head></html>"));
 +        assert!(!has_body(""));
++    }
++
++    #[test]
++    fn browser_restart_once_per_cooldown() {
++        use super::{BROWSER_RESTART_COOLDOWN, CdpRenderer, browser_restart_due};
++        use std::time::{Duration, Instant};
++        let mut last = None;
++        let t0 = Instant::now();
++        assert!(browser_restart_due(&mut last, t0));
++        assert!(!browser_restart_due(&mut last, t0 + Duration::from_secs(60)));
++        assert!(browser_restart_due(&mut last, t0 + BROWSER_RESTART_COOLDOWN));
++        // Off unless asked: a browser that nothing restarts would stay closed.
++        let r = CdpRenderer::new("chrome", "ws://x/", 1000, 1);
++        assert!(!r.browser_restart_due_now());
++        let r = r.with_restart_on_walled_reset(true);
++        assert!(r.browser_restart_due_now());
++        assert!(!r.browser_restart_due_now());
 +    }
 +
      #[test]
