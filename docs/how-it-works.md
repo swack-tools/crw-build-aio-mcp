@@ -304,8 +304,11 @@ hours on one profile, eBay's Akamai turned about half of all visits away with it
 403 "Something went wrong" page, and the reload cleared only half of those; the
 same pages from a new profile, on the same address, all got through. The verdict
 is on the session the cookies name, not on the address or the page, so a person
-who clears the site's data gets through too. Once per host every 10 minutes; a
-site that is down still fails after the one reload.
+who clears the site's data gets through too. Once per host every minute: a
+reset costs ten seconds and eBay never punished one, while a ten-minute wait
+left six scrapes to fail when eBay soured a fresh session within seconds. A
+site that is down still fails after the one reload, and costs one reset a
+minute.
 
 A snapshot without a `<body>` is of a document still being parsed, since
 Chrome's parser gives every finished HTML document one: the site sent the

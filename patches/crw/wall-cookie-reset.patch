@@ -1,18 +1,20 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
-@@ -102,6 +102,10 @@ const SETTLE_MAX_MS: u64 = 4000;
+@@ -102,6 +102,12 @@ const SETTLE_MAX_MS: u64 = 4000;
  /// `RELOAD_LOAD_MAX` to load before the settle above.
  const RELOAD_PAUSE: Duration = Duration::from_millis(1500);
  const RELOAD_LOAD_MAX: Duration = Duration::from_secs(12);
 +/// After a wall outlasts the reload, the site's cookies and storage are
 +/// dropped and it is visited once more as a first visit, at most once per host
-+/// in this long.
-+const WALL_RESET_COOLDOWN: Duration = Duration::from_secs(10 * 60);
++/// in this long. A minute: a reset costs ten seconds and eBay never punished
++/// one, while a ten-minute wait left six scrapes to fail when eBay soured a
++/// fresh session within seconds. A site that is down costs one reset a minute.
++const WALL_RESET_COOLDOWN: Duration = Duration::from_secs(60);
  /// How long a JavaScript dialog stays open before crw accepts it.
  const DIALOG_ANSWER_DELAY: Duration = Duration::from_millis(700);
  /// Max iterations for the auto-scroll lazy-load pass. 12 viewports usually
-@@ -557,6 +561,9 @@ pub struct CdpRenderer {
+@@ -557,6 +563,9 @@ pub struct CdpRenderer {
      fast_ready: bool,
      /// UA for `Network.setUserAgentOverride`; empty = no override (browser default).
      user_agent: String,
@@ -22,7 +24,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  }
  
  impl CdpRenderer {
-@@ -591,6 +598,7 @@ impl CdpRenderer {
+@@ -591,6 +600,7 @@ impl CdpRenderer {
              spa_selector_max: Duration::from_millis(SPA_SELECTOR_MAX_MS),
              fast_ready: false,
              user_agent: String::new(),
@@ -30,7 +32,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          }
      }
  
-@@ -2241,6 +2249,25 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
+@@ -2241,6 +2251,25 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
              && named.signal != crw_extract::antibot::AntibotSignal::StructuralFailure)
  }
  
@@ -56,7 +58,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// Is `document.contentType` one a page is read from? Markup, text and data
  /// are; a PDF, an image or a video is not.
  fn is_page_content_type(content_type: &str) -> bool {
-@@ -4080,6 +4107,39 @@ impl CdpRenderer {
+@@ -4082,6 +4111,39 @@ impl CdpRenderer {
              tokio::time::sleep(RELOAD_PAUSE).await;
              html = self.reload_and_read(conn, session_id, net).await?;
              html = self.wait_out_challenge(conn, session_id, url, html).await?;
@@ -96,7 +98,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          }
          let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
  
-@@ -4100,6 +4160,101 @@ impl CdpRenderer {
+@@ -4102,6 +4164,101 @@ impl CdpRenderer {
          Ok(html)
      }
  
@@ -198,7 +200,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      /// The HTTP status of the document now in the page, if it can be read.
      async fn document_status(conn: &CdpConnection, session_id: &str) -> Option<u16> {
          conn.send_recv(
-@@ -4179,25 +4334,36 @@ impl CdpRenderer {
+@@ -4181,25 +4338,36 @@ impl CdpRenderer {
              self.page_timeout,
          )
          .await?;
@@ -250,7 +252,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      }
  
      /// Measure the content box (Page.getLayoutMetrics) and decide whether a
-@@ -5668,6 +5834,33 @@ mod tests {
+@@ -5670,6 +5838,33 @@ mod tests {
          assert!(!r.skeleton_wait_applies(Some(500)));
      }
  
