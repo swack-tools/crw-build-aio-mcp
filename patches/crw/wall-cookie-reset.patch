@@ -1,7 +1,7 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
-@@ -109,6 +109,17 @@ const SETTLE_MAX_MS: u64 = 4000;
+@@ -109,6 +109,23 @@ const SETTLE_MAX_MS: u64 = 4000;
  /// `RELOAD_LOAD_MAX` to load before the settle above.
  const RELOAD_PAUSE: Duration = Duration::from_millis(1500);
  const RELOAD_LOAD_MAX: Duration = Duration::from_secs(12);
@@ -11,6 +11,12 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +/// one, while a ten-minute wait left six scrapes to fail when eBay soured a
 +/// fresh session within seconds. A site that is down costs one reset a minute.
 +const WALL_RESET_COOLDOWN: Duration = Duration::from_secs(60);
++/// A second drop for one host within this long of the last says the fresh
++/// session did not hold, so the browser profile is what the site judges: in
++/// both of eBay's bursts the second drop came within two minutes, where a
++/// healthy day never saw two within seventeen. The browser is then closed (see
++/// `BROWSER_RESTART_COOLDOWN`) instead of the cookies dropped again.
++const WALL_BURST_WINDOW: Duration = Duration::from_secs(5 * 60);
 +/// A first visit the site turns away too is its verdict on the browser profile,
 +/// which no cookie drop reaches. With `restart_on_walled_reset`, the browser is
 +/// then closed; chrome-stealth's container exits with it and comes back with a
@@ -19,7 +25,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// How long a JavaScript dialog stays open before crw accepts it.
  const DIALOG_ANSWER_DELAY: Duration = Duration::from_millis(700);
  /// Max iterations for the auto-scroll lazy-load pass. 12 viewports usually
-@@ -567,6 +578,15 @@ pub struct CdpRenderer {
+@@ -567,6 +584,15 @@ pub struct CdpRenderer {
      /// The browser's own UA, presentable form, read once when the tier UA is
      /// not a browser UA. See [`Self::tier_user_agent`].
      native_ua: Arc<OnceCell<String>>,
@@ -35,7 +41,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  }
  
  impl CdpRenderer {
-@@ -602,6 +622,9 @@ impl CdpRenderer {
+@@ -602,6 +628,9 @@ impl CdpRenderer {
              fast_ready: false,
              user_agent: String::new(),
              native_ua: Arc::new(OnceCell::new()),
@@ -45,7 +51,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          }
      }
  
-@@ -651,6 +674,11 @@ impl CdpRenderer {
+@@ -651,6 +680,11 @@ impl CdpRenderer {
      /// Enable the event-driven earliest-ready exit (latency-qn). Quality-safe:
      /// keeps a mandatory body-text content floor so it never snapshots an empty
      /// shell; only changes WHEN a ready page is detected (sooner).
@@ -57,7 +63,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      pub fn with_fast_ready(mut self, on: bool) -> Self {
          self.fast_ready = on;
          self
-@@ -2351,6 +2379,40 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
+@@ -2351,6 +2385,54 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
              && named.signal != crw_extract::antibot::AntibotSignal::StructuralFailure)
  }
  
@@ -68,16 +74,30 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +    html.contains("<body")
 +}
 +
-+/// Whether `host`'s cookies and storage may be dropped now: when they weren't
-+/// within `WALL_RESET_COOLDOWN`. Records the drop when so, and forgets hosts
-+/// past the cooldown.
-+fn wall_reset_due(resets: &mut HashMap<String, Instant>, host: &str, now: Instant) -> bool {
-+    resets.retain(|_, at| now.saturating_duration_since(*at) < WALL_RESET_COOLDOWN);
-+    if resets.contains_key(host) {
-+        return false;
++/// What a wall that outlasted the reload gets, by when the host's cookies
++/// were last dropped.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++enum WallReset {
++    /// Nothing: the last drop was within `WALL_RESET_COOLDOWN`.
++    NotDue,
++    /// The host's cookies and storage dropped, and a first visit.
++    Due,
++    /// A drop would be the second within `WALL_BURST_WINDOW`: the browser is
++    /// closed for a fresh profile instead.
++    Burst,
++}
++
++/// Whether `host`'s cookies and storage may be dropped now, and whether that
++/// would be the second drop within `WALL_BURST_WINDOW`. Records the drop when
++/// due, and forgets hosts past the window.
++fn wall_reset_due(resets: &mut HashMap<String, Instant>, host: &str, now: Instant) -> WallReset {
++    resets.retain(|_, at| now.saturating_duration_since(*at) < WALL_BURST_WINDOW);
++    let last = resets.get(host).copied();
++    if last.is_some_and(|at| now.saturating_duration_since(at) < WALL_RESET_COOLDOWN) {
++        return WallReset::NotDue;
 +    }
 +    resets.insert(host.to_string(), now);
-+    true
++    if last.is_some() { WallReset::Burst } else { WallReset::Due }
 +}
 +
 +/// Whether the browser may be closed for a fresh profile now: when it wasn't
@@ -98,7 +118,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// Is `document.contentType` one a page is read from? Markup, text and data
  /// are; a PDF, an image or a video is not.
  fn is_page_content_type(content_type: &str) -> bool {
-@@ -4230,6 +4292,60 @@ impl CdpRenderer {
+@@ -4230,6 +4312,76 @@ impl CdpRenderer {
              tokio::time::sleep(RELOAD_PAUSE).await;
              html = self.reload_and_read(conn, session_id, net).await?;
              html = self.wait_out_challenge(conn, session_id, url, html).await?;
@@ -117,9 +137,25 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +            let here = Self::document_url(conn, session_id)
 +                .await
 +                .unwrap_or_else(|| url.to_string());
-+            if is_revisitable_wall(Self::document_status(conn, session_id).await, &html)
-+                && self.wall_reset_due_for(&here)
-+            {
++            let reset = if is_revisitable_wall(Self::document_status(conn, session_id).await, &html) {
++                self.wall_reset_due_for(&here)
++            } else {
++                WallReset::NotDue
++            };
++            if reset == WallReset::Burst && self.browser_restart_due_now() {
++                // 7b. The second drop within WALL_BURST_WINDOW: the fresh
++                // session from the last one did not hold, so the verdict is on
++                // the profile, and dropping cookies again would buy another
++                // minute. Close the browser instead (see 8); this scrape fails
++                // as blocked, as it would have.
++                tracing::warn!(
++                    url = %LogUrl(&here),
++                    "Anti-bot wall outlasted the reload again within minutes of a reset; closing the browser for a fresh profile"
++                );
++                let _ = conn
++                    .send_recv("Browser.close", serde_json::json!({}), None, Duration::from_secs(3))
++                    .await;
++            } else if reset != WallReset::NotDue {
 +                let cookies = Self::clear_site_data(conn, session_id, &here).await;
 +                tracing::info!(
 +                    url = %LogUrl(&here),
@@ -159,7 +195,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          }
          let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
  
-@@ -4250,6 +4366,111 @@ impl CdpRenderer {
+@@ -4250,6 +4402,111 @@ impl CdpRenderer {
          Ok(html)
      }
  
@@ -178,13 +214,13 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +        .filter(|u| u.starts_with("http"))
 +    }
 +
-+    /// Whether `url`'s host may have its data dropped now (`wall_reset_due`).
-+    fn wall_reset_due_for(&self, url: &str) -> bool {
++    /// What a wall on `url` that outlasted the reload gets (`wall_reset_due`).
++    fn wall_reset_due_for(&self, url: &str) -> WallReset {
 +        let Some(host) = url::Url::parse(url)
 +            .ok()
 +            .and_then(|u| u.host_str().map(str::to_owned))
 +        else {
-+            return false;
++            return WallReset::NotDue;
 +        };
 +        let mut resets = self.wall_resets.lock().unwrap_or_else(|e| e.into_inner());
 +        wall_reset_due(&mut resets, &host, Instant::now())
@@ -271,7 +307,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      /// The HTTP status of the document now in the page, if it can be read.
      async fn document_status(conn: &CdpConnection, session_id: &str) -> Option<u16> {
          conn.send_recv(
-@@ -4329,25 +4550,36 @@ impl CdpRenderer {
+@@ -4329,25 +4586,36 @@ impl CdpRenderer {
              self.page_timeout,
          )
          .await?;
@@ -323,7 +359,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      }
  
      /// Measure the content box (Page.getLayoutMetrics) and decide whether a
-@@ -5969,6 +6201,50 @@ mod tests {
+@@ -5969,6 +6237,55 @@ mod tests {
          assert!(!r.skeleton_wait_applies(Some(500)));
      }
  
@@ -332,17 +368,22 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +        use super::{CdpRenderer, WALL_RESET_COOLDOWN, wall_reset_due};
 +        use std::collections::HashMap;
 +        use std::time::{Duration, Instant};
++        use super::{WALL_BURST_WINDOW, WallReset::*};
 +        let mut resets = HashMap::new();
 +        let t0 = Instant::now();
-+        assert!(wall_reset_due(&mut resets, "www.ebay.com", t0));
-+        assert!(!wall_reset_due(&mut resets, "www.ebay.com", t0 + Duration::from_secs(1)));
-+        assert!(wall_reset_due(&mut resets, "www.reddit.com", t0 + Duration::from_secs(1)));
-+        assert!(wall_reset_due(&mut resets, "www.ebay.com", t0 + WALL_RESET_COOLDOWN));
++        assert_eq!(wall_reset_due(&mut resets, "www.ebay.com", t0), Due);
++        assert_eq!(wall_reset_due(&mut resets, "www.ebay.com", t0 + Duration::from_secs(1)), NotDue);
++        assert_eq!(wall_reset_due(&mut resets, "www.reddit.com", t0 + Duration::from_secs(1)), Due);
++        // A second drop within the window is a burst; past it, a first drop again.
++        assert_eq!(wall_reset_due(&mut resets, "www.ebay.com", t0 + WALL_RESET_COOLDOWN), Burst);
 +        assert_eq!(resets.len(), 2);
++        let later = t0 + WALL_RESET_COOLDOWN + WALL_BURST_WINDOW;
++        assert_eq!(wall_reset_due(&mut resets, "www.ebay.com", later), Due);
++        assert_eq!(resets.len(), 1);
 +        let r = CdpRenderer::new("chrome", "ws://x/", 1000, 1);
-+        assert!(r.wall_reset_due_for("https://www.ebay.com/itm/1"));
-+        assert!(!r.wall_reset_due_for("https://www.ebay.com/sch/i.html?_nkw=x"));
-+        assert!(!r.wall_reset_due_for("not a url"));
++        assert_eq!(r.wall_reset_due_for("https://www.ebay.com/itm/1"), Due);
++        assert_eq!(r.wall_reset_due_for("https://www.ebay.com/sch/i.html?_nkw=x"), NotDue);
++        assert_eq!(r.wall_reset_due_for("not a url"), NotDue);
 +    }
 +
 +    #[test]
