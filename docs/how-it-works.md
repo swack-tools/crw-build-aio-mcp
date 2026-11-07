@@ -325,8 +325,11 @@ on walled half of every session within seconds. With
 closes Chrome over CDP; chrome-stealth's container exits with it and is back on
 a fresh profile in about eight seconds, and the next scrape reconnects. The
 scrape that found the wall fails as blocked, as it would have, and the log says
-`closing the browser for a fresh profile`. At most once every four hours. Off
-by default, since a browser that nothing restarts would stay closed.
+`closing the browser for a fresh profile`. At most once every fifteen minutes:
+eBay has soured a profile one to five hours in, and a four-hour limit left the
+burst that came two and a half hours after a close to fail a scrape a minute
+instead. Off by default, since a browser that nothing restarts would stay
+closed.
 
 A second drop for one host within five minutes of the last closes the browser
 the same way, instead of dropping the cookies again: the fresh session did not

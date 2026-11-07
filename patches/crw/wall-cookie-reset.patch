@@ -1,7 +1,7 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
-@@ -109,6 +109,23 @@ const SETTLE_MAX_MS: u64 = 4000;
+@@ -109,6 +109,27 @@ const SETTLE_MAX_MS: u64 = 4000;
  /// `RELOAD_LOAD_MAX` to load before the settle above.
  const RELOAD_PAUSE: Duration = Duration::from_millis(1500);
  const RELOAD_LOAD_MAX: Duration = Duration::from_secs(12);
@@ -20,12 +20,16 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +/// A first visit the site turns away too is its verdict on the browser profile,
 +/// which no cookie drop reaches. With `restart_on_walled_reset`, the browser is
 +/// then closed; chrome-stealth's container exits with it and comes back with a
-+/// fresh profile in seconds. At most once in this long.
-+const BROWSER_RESTART_COOLDOWN: Duration = Duration::from_secs(4 * 60 * 60);
++/// fresh profile in seconds. At most once in this long: eBay has soured a
++/// profile one to five hours in, and a four-hour limit left the burst that
++/// came two and a half hours after a close to fail a scrape a minute instead.
++/// A site that turns a fresh profile away at once costs eight seconds of
++/// browser per close, four times an hour at most.
++const BROWSER_RESTART_COOLDOWN: Duration = Duration::from_secs(15 * 60);
  /// How long a JavaScript dialog stays open before crw accepts it.
  const DIALOG_ANSWER_DELAY: Duration = Duration::from_millis(700);
  /// Max iterations for the auto-scroll lazy-load pass. 12 viewports usually
-@@ -567,6 +584,15 @@ pub struct CdpRenderer {
+@@ -567,6 +588,15 @@ pub struct CdpRenderer {
      /// The browser's own UA, presentable form, read once when the tier UA is
      /// not a browser UA. See [`Self::tier_user_agent`].
      native_ua: Arc<OnceCell<String>>,
@@ -41,7 +45,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  }
  
  impl CdpRenderer {
-@@ -602,6 +628,9 @@ impl CdpRenderer {
+@@ -602,6 +632,9 @@ impl CdpRenderer {
              fast_ready: false,
              user_agent: String::new(),
              native_ua: Arc::new(OnceCell::new()),
@@ -51,7 +55,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          }
      }
  
-@@ -651,6 +680,11 @@ impl CdpRenderer {
+@@ -651,6 +684,11 @@ impl CdpRenderer {
      /// Enable the event-driven earliest-ready exit (latency-qn). Quality-safe:
      /// keeps a mandatory body-text content floor so it never snapshots an empty
      /// shell; only changes WHEN a ready page is detected (sooner).
@@ -63,7 +67,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      pub fn with_fast_ready(mut self, on: bool) -> Self {
          self.fast_ready = on;
          self
-@@ -2351,6 +2385,54 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
+@@ -2351,6 +2389,54 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
              && named.signal != crw_extract::antibot::AntibotSignal::StructuralFailure)
  }
  
@@ -118,7 +122,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// Is `document.contentType` one a page is read from? Markup, text and data
  /// are; a PDF, an image or a video is not.
  fn is_page_content_type(content_type: &str) -> bool {
-@@ -4230,6 +4312,76 @@ impl CdpRenderer {
+@@ -4230,6 +4316,76 @@ impl CdpRenderer {
              tokio::time::sleep(RELOAD_PAUSE).await;
              html = self.reload_and_read(conn, session_id, net).await?;
              html = self.wait_out_challenge(conn, session_id, url, html).await?;
@@ -195,7 +199,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          }
          let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
  
-@@ -4250,6 +4402,111 @@ impl CdpRenderer {
+@@ -4250,6 +4406,111 @@ impl CdpRenderer {
          Ok(html)
      }
  
@@ -307,7 +311,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      /// The HTTP status of the document now in the page, if it can be read.
      async fn document_status(conn: &CdpConnection, session_id: &str) -> Option<u16> {
          conn.send_recv(
-@@ -4329,25 +4586,36 @@ impl CdpRenderer {
+@@ -4329,25 +4590,36 @@ impl CdpRenderer {
              self.page_timeout,
          )
          .await?;
@@ -359,7 +363,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      }
  
      /// Measure the content box (Page.getLayoutMetrics) and decide whether a
-@@ -5969,6 +6237,55 @@ mod tests {
+@@ -5969,6 +6241,55 @@ mod tests {
          assert!(!r.skeleton_wait_applies(Some(500)));
      }
  
