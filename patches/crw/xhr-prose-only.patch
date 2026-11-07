@@ -1,8 +1,7 @@
 diff --git a/crates/crw-extract/src/lib.rs b/crates/crw-extract/src/lib.rs
-index c4536cfb..00a78665 100644
 --- a/crates/crw-extract/src/lib.rs
 +++ b/crates/crw-extract/src/lib.rs
-@@ -1107,7 +1107,7 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
+@@ -1114,7 +1114,7 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
              Err(_) => continue,
          };
          walk_json_strings(&value, &mut |s| {
@@ -11,8 +10,8 @@ index c4536cfb..00a78665 100644
                  paragraphs.push(s.to_string());
              }
          });
-@@ -1123,6 +1123,137 @@ fn extract_xhr_text(captured: &[CapturedNetworkResponse]) -> Option<String> {
-     Some(joined)
+@@ -1157,6 +1157,137 @@ fn is_machine_token(s: &str) -> bool {
+     token_bytes * 2 > s.len()
  }
  
 +/// Whether a captured JSON string reads as text for a person. Pages also fetch
@@ -149,37 +148,8 @@ index c4536cfb..00a78665 100644
  fn walk_json_strings(value: &serde_json::Value, on_string: &mut dyn FnMut(&str)) {
      match value {
          serde_json::Value::String(s) => {
-@@ -1224,11 +1355,15 @@ mod private_tests {
- 
-     #[test]
-     fn xhr_extract_collects_long_string_fields() {
-+        let a = "The council voted on Tuesday to extend the library's opening hours. ".repeat(4);
-+        let b =
-+            "Residents said longer evening hours would help students and shift workers. ".repeat(2);
-+        let c = "A pilot program will run through the spring before a final decision is made.";
-         let body = serde_json::json!({
-             "title": "short",
--            "body": "a".repeat(300),
--            "meta": { "summary": "b".repeat(200) },
--            "tags": ["c".repeat(150), "short"],
-+            "body": a,
-+            "meta": { "summary": b },
-+            "tags": [c.repeat(2), "short"],
-             "url": "https://example.com/should/skip",
-         })
-         .to_string();
-@@ -1241,13 +1376,141 @@ mod private_tests {
-             body_size_bytes: 800,
-         }];
-         let got = extract_xhr_text(&resp).expect("expected long-text fields");
--        assert!(got.contains(&"a".repeat(300)));
--        assert!(got.contains(&"b".repeat(200)));
--        assert!(got.contains(&"c".repeat(150)));
-+        assert!(got.contains(a.trim()));
-+        assert!(got.contains(b.trim()));
-+        assert!(got.contains(c));
-         assert!(!got.contains("short"));
-         assert!(!got.contains("example.com/should/skip"));
+@@ -1363,6 +1494,134 @@ mod private_tests {
+         assert!(md.len() < 1_000, "{} chars", md.len());
      }
  
 +    #[test]

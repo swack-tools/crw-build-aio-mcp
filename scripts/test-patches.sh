@@ -27,6 +27,9 @@
 #     page's skeleton placeholders to fill is skipped with CHROME_FAST_READY,
 #     or a caller's waitFor; and the guard sits on that wait in the patched
 #     source, not on upstream's consent dismissal next to it.
+#   Captured JSON, xhr-prose-only.patch: the fallback that builds markdown from
+#     a page's fetched JSON keeps prose, including text written without spaces
+#     and text with inline markup, and drops sensor payloads, scripts and CSS.
 #   MCP data tools, mcp-data-tools-probe.patch: a proxy to an API whose
 #     /v1/data/manifest is a 404 lists neither data tool and refuses a call
 #     to one; any other answer, or none, keeps them listed.
@@ -47,6 +50,11 @@ RENDERER_TESTS=(
   cdp::tests::browser_restart_once_per_cooldown
   cdp::tests::reloaded_page_keeps_its_own_status_or_is_the_page
   cdp::tests::tracker_keeps_the_main_frame_document_status
+)
+EXTRACT_TESTS=(
+  private_tests::xhr_extract_skips_payloads_code_and_css
+  private_tests::xhr_extract_keeps_text_written_without_spaces
+  private_tests::xhr_extract_keeps_text_with_html_formatting
 )
 # The proxy-only build, as bin/crw-mcp is.
 MCP_TESTS=(
@@ -83,5 +91,6 @@ run_tests() {
   done
 }
 run_tests crw-renderer "${RENDERER_TESTS[@]}" -- --features "$RENDERER_FEATURES" --lib
+run_tests crw-extract "${EXTRACT_TESTS[@]}" -- --lib
 run_tests crw-mcp "${MCP_TESTS[@]}" -- --no-default-features --bin crw-mcp
-log "all $((${#RENDERER_TESTS[@]} + ${#MCP_TESTS[@]})) patch tests passed"
+log "all $((${#RENDERER_TESTS[@]} + ${#EXTRACT_TESTS[@]} + ${#MCP_TESTS[@]})) patch tests passed"
