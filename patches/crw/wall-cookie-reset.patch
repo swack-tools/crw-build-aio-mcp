@@ -1,6 +1,15 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
+@@ -6,7 +6,7 @@ use std::collections::HashMap;
+ use std::sync::Arc;
+ use std::sync::LazyLock;
+ use std::sync::Mutex as StdMutex;
+-use std::sync::atomic::{AtomicI64, Ordering};
++use std::sync::atomic::{AtomicI64, AtomicU16, Ordering};
+ use std::time::{Duration, Instant};
+ use tokio::sync::{Mutex, OnceCell, Semaphore, broadcast};
+ use tokio_tungstenite::connect_async;
 @@ -109,6 +109,27 @@ const SETTLE_MAX_MS: u64 = 4000;
  /// `RELOAD_LOAD_MAX` to load before the settle above.
  const RELOAD_PAUSE: Duration = Duration::from_millis(1500);
@@ -67,7 +76,62 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      pub fn with_fast_ready(mut self, on: bool) -> Self {
          self.fast_ready = on;
          self
-@@ -2351,6 +2389,80 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
+@@ -1873,6 +1911,10 @@ struct NetworkActivityTracker {
+     /// [`Self::budget_settled`] and the `nav budget hit` log line; the pump's
+     /// adoption logic is unchanged.
+     adopted_frame: std::sync::OnceLock<String>,
++    /// The status of the main frame's last document response, 0 for none: the
++    /// document now showing, through redirects and reloads alike, where
++    /// `performance` reads 0 for one that came through a cross-origin redirect.
++    document_status: AtomicU16,
+ }
+ 
+ impl NetworkActivityTracker {
+@@ -1881,9 +1923,20 @@ impl NetworkActivityTracker {
+             in_flight: AtomicI64::new(0),
+             last_change_ms: AtomicI64::new(now_unix_ms()),
+             adopted_frame: std::sync::OnceLock::new(),
++            document_status: AtomicU16::new(0),
+         }
+     }
+ 
++    fn record_document_status(&self, status: u16) {
++        self.document_status.store(status, Ordering::Relaxed);
++    }
++
++    /// The main frame's last document status, if a response was seen.
++    fn document_status(&self) -> Option<u16> {
++        let status = self.document_status.load(Ordering::Relaxed);
++        (status != 0).then_some(status)
++    }
++
+     /// Whether a page whose nav budget just fired had in fact finished: the
+     /// tracker is counting the frame `Page.navigate` reported (so it is the
+     /// top-level document, not an iframe or nothing at all) and that frame's
+@@ -1992,6 +2045,22 @@ async fn run_network_idle_pump(
+                     tracker.record_request_end();
+                 }
+             }
++            "Network.responseReceived" => {
++                // The main frame's document status, redirects and reloads
++                // included. An iframe is a Document too, so the frame must be
++                // the adopted one.
++                if ev.params.get("type").and_then(|v| v.as_str()) == Some("Document")
++                    && main_frame.is_some()
++                    && ev.params.get("frameId").and_then(|v| v.as_str()) == main_frame.as_deref()
++                    && let Some(status) = ev
++                        .params
++                        .pointer("/response/status")
++                        .and_then(|v| v.as_f64())
++                        .and_then(|v| u16::try_from(v as i64).ok())
++                {
++                    tracker.record_document_status(status);
++                }
++            }
+             _ => {}
+         }
+     }
+@@ -2351,6 +2420,80 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
              && named.signal != crw_extract::antibot::AntibotSignal::StructuralFailure)
  }
  
@@ -148,7 +212,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// Is `document.contentType` one a page is read from? Markup, text and data
  /// are; a PDF, an image or a video is not.
  fn is_page_content_type(content_type: &str) -> bool {
-@@ -3747,8 +3859,9 @@ impl CdpRenderer {
+@@ -3747,8 +3890,9 @@ impl CdpRenderer {
              // we attempt a partial-DOM snapshot and return `truncated = true`;
              // `single.rs` decides success on md length.
              let phase = self.post_navigate_phase(conn, &session_id, url, wait_for_ms, &net_tracker);
@@ -160,7 +224,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
                  Ok(Err(err)) => return Err(err),
                  Err(_) => {
                      // Before `Page.stopLoading` (which cancels requests and moves
-@@ -3790,16 +3903,16 @@ impl CdpRenderer {
+@@ -3790,17 +3934,17 @@ impl CdpRenderer {
                          .chrome_budget_truncated_total
                          .with_label_values(&[if html.is_empty() { "empty" } else { "ok" }])
                          .inc();
@@ -175,13 +239,15 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 -            let status_code = if (status_code >= 400 || status_code == 202)
 -                && !is_challenge_page(&html)
 -            {
+-                Self::document_status(conn, &session_id)
 +            let status_code = if let Some(status) = reload_status {
 +                status
 +            } else if (status_code >= 400 || status_code == 202) && !is_challenge_page(&html) {
-                 Self::document_status(conn, &session_id)
++                Self::document_status(conn, &session_id, &net_tracker)
                      .await
                      .unwrap_or(status_code)
-@@ -4067,7 +4180,10 @@ impl CdpRenderer {
+             } else {
+@@ -4067,7 +4211,10 @@ impl CdpRenderer {
          url: &str,
          wait_for_ms: Option<u64>,
          net: &NetworkActivityTracker,
@@ -193,7 +259,14 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          // Phase-timing measurement (latency-qn): which post-navigate phase eats
          // the render time? Emitted on the `render_phases` debug target (off in
          // prod RUST_LOG=info; enable with RUST_LOG=render_phases=debug for bench).
-@@ -4230,6 +4346,78 @@ impl CdpRenderer {
+@@ -4224,12 +4371,84 @@ impl CdpRenderer {
+         // loop above waited that out), and not when the caller set the timing.
+         if wait_for_ms.is_none()
+             && self.name == "chrome"
+-            && is_revisitable_wall(Self::document_status(conn, session_id).await, &html)
++            && is_revisitable_wall(Self::document_status(conn, session_id, net).await, &html)
+         {
+             tracing::info!(url = %LogUrl(&url), "Anti-bot wall on this visit; reloading once");
              tokio::time::sleep(RELOAD_PAUSE).await;
              html = self.reload_and_read(conn, session_id, net).await?;
              html = self.wait_out_challenge(conn, session_id, url, html).await?;
@@ -212,7 +285,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +            let here = Self::document_url(conn, session_id)
 +                .await
 +                .unwrap_or_else(|| url.to_string());
-+            let reset = if is_revisitable_wall(Self::document_status(conn, session_id).await, &html) {
++            let reset = if is_revisitable_wall(Self::document_status(conn, session_id, net).await, &html) {
 +                self.wall_reset_due_for(&here)
 +            } else {
 +                WallReset::NotDue
@@ -241,7 +314,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +                    tokio::time::sleep(RELOAD_PAUSE).await;
 +                    html = self.reload_and_read(conn, session_id, net).await?;
 +                    html = self.wait_out_challenge(conn, session_id, url, html).await?;
-+                    if !is_revisitable_wall(Self::document_status(conn, session_id).await, &html) {
++                    if !is_revisitable_wall(Self::document_status(conn, session_id, net).await, &html) {
 +                        break;
 +                    }
 +                }
@@ -255,7 +328,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +                // reconnects. This scrape fails as blocked, as it would have.
 +                // Opt-in, since a browser nothing restarts would stay closed;
 +                // once per BROWSER_RESTART_COOLDOWN.
-+                if is_revisitable_wall(Self::document_status(conn, session_id).await, &html)
++                if is_revisitable_wall(Self::document_status(conn, session_id, net).await, &html)
 +                    && self.browser_restart_due_now()
 +                {
 +                    tracing::warn!(
@@ -268,11 +341,11 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +                }
 +            }
 +            reload_status =
-+                status_after_reload(Self::document_status(conn, session_id).await, &html);
++                status_after_reload(Self::document_status(conn, session_id, net).await, &html);
          }
          let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
  
-@@ -4247,7 +4435,112 @@ impl CdpRenderer {
+@@ -4247,11 +4466,127 @@ impl CdpRenderer {
              "render phases",
          );
  
@@ -386,7 +459,23 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      }
  
      /// The HTTP status of the document now in the page, if it can be read.
-@@ -4329,25 +4622,36 @@ impl CdpRenderer {
+-    async fn document_status(conn: &CdpConnection, session_id: &str) -> Option<u16> {
++    async fn document_status(
++        conn: &CdpConnection,
++        session_id: &str,
++        net: &NetworkActivityTracker,
++    ) -> Option<u16> {
++        // The tracker saw the response itself. `performance` below reads 0 for
++        // a document that came through a cross-origin redirect, as eBay sends
++        // a first visit, and that 0 hid both a real page behind the wall's 403
++        // and a wall behind no status at all.
++        if let Some(status) = net.document_status() {
++            return Some(status);
++        }
+         conn.send_recv(
+             "Runtime.evaluate",
+             serde_json::json!({
+@@ -4329,25 +4664,36 @@ impl CdpRenderer {
              self.page_timeout,
          )
          .await?;
@@ -438,7 +527,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      }
  
      /// Measure the content box (Page.getLayoutMetrics) and decide whether a
-@@ -5969,6 +6273,70 @@ mod tests {
+@@ -5969,6 +6315,103 @@ mod tests {
          assert!(!r.skeleton_wait_applies(Some(500)));
      }
  
@@ -504,6 +593,39 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +        assert_eq!(status_after_reload(Some(200), wall), Some(200));
 +        assert_eq!(status_after_reload(None, &page), Some(200));
 +        assert_eq!(status_after_reload(None, wall), None);
++    }
++
++    /// The tracker keeps the main frame's last document status: a redirect's
++    /// or reload's response replaces the first, and an iframe's never counts.
++    #[tokio::test]
++    async fn tracker_keeps_the_main_frame_document_status() {
++        use super::{NetworkActivityTracker, run_network_idle_pump};
++        use crate::cdp_conn::CdpEvent;
++        let (tx, rx) = tokio::sync::broadcast::channel(16);
++        let tracker = std::sync::Arc::new(NetworkActivityTracker::new());
++        let t = tracker.clone();
++        let pump = tokio::spawn(async move { run_network_idle_pump(rx, t, "S1").await });
++        let ev = |method: &str, params: serde_json::Value| CdpEvent {
++            method: method.to_string(),
++            params,
++            session_id: Some("S1".to_string()),
++        };
++        assert_eq!(tracker.document_status(), None);
++        tx.send(ev("Network.requestWillBeSent", serde_json::json!({"requestId": "r1", "frameId": "F1", "type": "Document"}))).unwrap();
++        tx.send(ev("Network.responseReceived", serde_json::json!({"requestId": "r1", "frameId": "F1", "type": "Document", "response": {"status": 403}}))).unwrap();
++        tx.send(ev("Network.responseReceived", serde_json::json!({"requestId": "r2", "frameId": "F2", "type": "Document", "response": {"status": 404}}))).unwrap();
++        tx.send(ev("Network.responseReceived", serde_json::json!({"requestId": "r3", "frameId": "F1", "type": "Script", "response": {"status": 500}}))).unwrap();
++        for _ in 0..50 {
++            tokio::task::yield_now().await;
++        }
++        assert_eq!(tracker.document_status(), Some(403));
++        tx.send(ev("Network.responseReceived", serde_json::json!({"requestId": "r4", "frameId": "F1", "type": "Document", "response": {"status": 200}}))).unwrap();
++        for _ in 0..50 {
++            tokio::task::yield_now().await;
++        }
++        assert_eq!(tracker.document_status(), Some(200));
++        drop(tx);
++        let _ = pump.await;
 +    }
 +
      #[test]
