@@ -337,6 +337,9 @@ hold, so the profile is what the site judges. Both of eBay's bursts opened with
 two drops under two minutes apart, and healthy hours never had two within
 seventeen; until then a burst cost a scrape every minute or two, each a wall
 that persisted inside the cooldown, while every drop's own first visit passed.
+A close also forgets the drops: no host has had its data dropped on the fresh
+profile, so its first wall gets a drop of its own rather than the cooldown of
+the drop that led to the close, which once left that wall with nothing tried.
 
 The status a wall is judged by, and the one reported with a reloaded page, is
 the document's own. The renderer keeps the status of the main frame's last
