@@ -338,6 +338,14 @@ two drops under two minutes apart, and healthy hours never had two within
 seventeen; until then a burst cost a scrape every minute or two, each a wall
 that persisted inside the cooldown, while every drop's own first visit passed.
 
+The status reported with a reloaded page is that page's own. Chrome hides a
+document's status when it arrived through a cross-origin redirect, as eBay
+sends a first visit; the status then fell back to the wall's 403, and three
+real eBay pages in a day were flagged as blocks while their text was all there.
+A reloaded page whose status is hidden, with more text than a wall carries and
+none of a wall's marks, is reported as 200; a small or marked one keeps the
+403, since eBay's own wall says nothing the detectors know and its size tells.
+
 ### `xhr-prose-only.patch`
 
 One of CRW's fallbacks for a page whose text loads later builds markdown from long
