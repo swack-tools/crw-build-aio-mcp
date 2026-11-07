@@ -7,6 +7,11 @@ FROM ubuntu:26.04
 # Xvfb is the display; xprop gives it a taskbar-sized work area and xdotool
 # moves the pointer on it. The fonts are a stock Ubuntu desktop's. Node runs
 # the DevTools relay and pointer.js.
+# The Chrome to install, as its Debian package version (build-images.sh reads
+# Google's package index for the current stable). Named here so the layer is
+# rebuilt when stable moves; without it, Docker's cache served a two-month-old
+# Chrome to every rebuild. Empty installs whatever is current.
+ARG CHROME_VERSION=""
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl gnupg \
       xvfb x11-utils xdotool \
@@ -18,7 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
       > /etc/apt/sources.list.d/google-chrome.list \
- && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
+ && apt-get update && apt-get install -y --no-install-recommends "google-chrome-stable${CHROME_VERSION:+=$CHROME_VERSION}" \
  && apt-get purge -y --auto-remove gnupg \
  && rm -rf /var/lib/apt/lists/*
 

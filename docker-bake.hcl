@@ -21,6 +21,7 @@ variable "BUILD_CACHE" { default = "" }
 # Changes once a week in CI (scripts/ci-plan.sh refresh). crw's runtime stage
 # takes it as an ARG, so its apt layer reruns instead of coming from BUILD_CACHE.
 variable "REFRESH" { default = "" }
+variable "CHROME_VERSION" { default = "" }
 
 variable "BUILD_DIR" { default = "build" }
 variable "DIST_DIR" { default = "dist" }
@@ -133,6 +134,7 @@ target "camofox" {
 target "chrome-stealth" {
   inherits = ["_common"]
   context  = "docker/chrome-stealth"
+  args     = { CHROME_VERSION = CHROME_VERSION }
   tags     = image("chrome-stealth")
   output   = output("chrome-stealth")
 }
