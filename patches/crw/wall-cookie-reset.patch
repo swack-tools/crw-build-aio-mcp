@@ -38,7 +38,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// How long a JavaScript dialog stays open before crw accepts it.
  const DIALOG_ANSWER_DELAY: Duration = Duration::from_millis(700);
  /// Max iterations for the auto-scroll lazy-load pass. 12 viewports usually
-@@ -567,6 +588,15 @@ pub struct CdpRenderer {
+@@ -581,6 +602,15 @@ pub struct CdpRenderer {
      /// The browser's own UA, presentable form, read once when the tier UA is
      /// not a browser UA. See [`Self::tier_user_agent`].
      native_ua: Arc<OnceCell<String>>,
@@ -54,7 +54,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  }
  
  impl CdpRenderer {
-@@ -602,6 +632,9 @@ impl CdpRenderer {
+@@ -616,6 +646,9 @@ impl CdpRenderer {
              fast_ready: false,
              user_agent: String::new(),
              native_ua: Arc::new(OnceCell::new()),
@@ -64,7 +64,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          }
      }
  
-@@ -651,6 +684,11 @@ impl CdpRenderer {
+@@ -665,6 +698,11 @@ impl CdpRenderer {
      /// Enable the event-driven earliest-ready exit (latency-qn). Quality-safe:
      /// keeps a mandatory body-text content floor so it never snapshots an empty
      /// shell; only changes WHEN a ready page is detected (sooner).
@@ -76,7 +76,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      pub fn with_fast_ready(mut self, on: bool) -> Self {
          self.fast_ready = on;
          self
-@@ -1873,6 +1911,10 @@ struct NetworkActivityTracker {
+@@ -1887,6 +1925,10 @@ struct NetworkActivityTracker {
      /// [`Self::budget_settled`] and the `nav budget hit` log line; the pump's
      /// adoption logic is unchanged.
      adopted_frame: std::sync::OnceLock<String>,
@@ -87,7 +87,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  }
  
  impl NetworkActivityTracker {
-@@ -1881,9 +1923,20 @@ impl NetworkActivityTracker {
+@@ -1895,9 +1937,20 @@ impl NetworkActivityTracker {
              in_flight: AtomicI64::new(0),
              last_change_ms: AtomicI64::new(now_unix_ms()),
              adopted_frame: std::sync::OnceLock::new(),
@@ -108,7 +108,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      /// Whether a page whose nav budget just fired had in fact finished: the
      /// tracker is counting the frame `Page.navigate` reported (so it is the
      /// top-level document, not an iframe or nothing at all) and that frame's
-@@ -1992,6 +2045,22 @@ async fn run_network_idle_pump(
+@@ -2006,6 +2059,22 @@ async fn run_network_idle_pump(
                      tracker.record_request_end();
                  }
              }
@@ -131,7 +131,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
              _ => {}
          }
      }
-@@ -2351,6 +2420,80 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
+@@ -2365,6 +2434,80 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
              && named.signal != crw_extract::antibot::AntibotSignal::StructuralFailure)
  }
  
@@ -212,7 +212,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// Is `document.contentType` one a page is read from? Markup, text and data
  /// are; a PDF, an image or a video is not.
  fn is_page_content_type(content_type: &str) -> bool {
-@@ -3747,8 +3890,9 @@ impl CdpRenderer {
+@@ -3800,8 +3943,9 @@ impl CdpRenderer {
              // we attempt a partial-DOM snapshot and return `truncated = true`;
              // `single.rs` decides success on md length.
              let phase = self.post_navigate_phase(conn, &session_id, url, wait_for_ms, &net_tracker);
@@ -224,7 +224,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
                  Ok(Err(err)) => return Err(err),
                  Err(_) => {
                      // Before `Page.stopLoading` (which cancels requests and moves
-@@ -3790,17 +3934,17 @@ impl CdpRenderer {
+@@ -3843,17 +3987,17 @@ impl CdpRenderer {
                          .chrome_budget_truncated_total
                          .with_label_values(&[if html.is_empty() { "empty" } else { "ok" }])
                          .inc();
@@ -247,7 +247,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
                      .await
                      .unwrap_or(status_code)
              } else {
-@@ -4067,7 +4211,10 @@ impl CdpRenderer {
+@@ -4120,7 +4264,10 @@ impl CdpRenderer {
          url: &str,
          wait_for_ms: Option<u64>,
          net: &NetworkActivityTracker,
@@ -259,7 +259,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          // Phase-timing measurement (latency-qn): which post-navigate phase eats
          // the render time? Emitted on the `render_phases` debug target (off in
          // prod RUST_LOG=info; enable with RUST_LOG=render_phases=debug for bench).
-@@ -4224,12 +4371,84 @@ impl CdpRenderer {
+@@ -4277,12 +4424,86 @@ impl CdpRenderer {
          // loop above waited that out), and not when the caller set the timing.
          if wait_for_ms.is_none()
              && self.name == "chrome"
@@ -303,6 +303,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +                let _ = conn
 +                    .send_recv("Browser.close", serde_json::json!({}), None, Duration::from_secs(3))
 +                    .await;
++                self.forget_wall_resets();
 +            } else if reset != WallReset::NotDue {
 +                let cookies = Self::clear_site_data(conn, session_id, &here).await;
 +                tracing::info!(
@@ -338,6 +339,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +                    let _ = conn
 +                        .send_recv("Browser.close", serde_json::json!({}), None, Duration::from_secs(3))
 +                        .await;
++                    self.forget_wall_resets();
 +                }
 +            }
 +            reload_status =
@@ -345,7 +347,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          }
          let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
  
-@@ -4247,11 +4466,127 @@ impl CdpRenderer {
+@@ -4300,11 +4521,139 @@ impl CdpRenderer {
              "render phases",
          );
  
@@ -388,6 +390,18 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +                &mut self.browser_restart.lock().unwrap_or_else(|e| e.into_inner()),
 +                Instant::now(),
 +            )
++    }
++
++    /// The browser was closed for a fresh profile: no host has had its data
++    /// dropped on that profile, so none is inside a cooldown. Left in place,
++    /// the record of the drop that led to the close kept the fresh profile's
++    /// first wall from getting a drop of its own, and that scrape failed with
++    /// nothing tried.
++    fn forget_wall_resets(&self) {
++        self.wall_resets
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .clear();
 +    }
 +
 +    /// Drop the cookies `url` would be sent, and its origin's storage, so the
@@ -475,7 +489,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          conn.send_recv(
              "Runtime.evaluate",
              serde_json::json!({
-@@ -4329,25 +4664,36 @@ impl CdpRenderer {
+@@ -4382,25 +4731,36 @@ impl CdpRenderer {
              self.page_timeout,
          )
          .await?;
@@ -527,7 +541,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      }
  
      /// Measure the content box (Page.getLayoutMetrics) and decide whether a
-@@ -5969,6 +6315,103 @@ mod tests {
+@@ -6056,6 +6416,107 @@ mod tests {
          assert!(!r.skeleton_wait_applies(Some(500)));
      }
  
@@ -552,6 +566,10 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +        assert_eq!(r.wall_reset_due_for("https://www.ebay.com/itm/1"), Due);
 +        assert_eq!(r.wall_reset_due_for("https://www.ebay.com/sch/i.html?_nkw=x"), NotDue);
 +        assert_eq!(r.wall_reset_due_for("not a url"), NotDue);
++        // A browser close forgets the drops: the fresh profile's first wall
++        // gets a drop of its own, not the cooldown of the one before.
++        r.forget_wall_resets();
++        assert_eq!(r.wall_reset_due_for("https://www.ebay.com/itm/2"), Due);
 +    }
 +
 +    #[test]
