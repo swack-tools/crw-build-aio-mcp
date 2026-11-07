@@ -351,6 +351,16 @@ no response have been seen either, a reloaded page with more text than a wall
 carries and none of a wall's marks is reported as 200, and a small or marked
 one keeps the navigation's status.
 
+### `tall-window-new-window.patch`
+
+CRW 0.42 lays a Chrome render out in a tall desktop window, 1280 by 2400, by
+asking for that size when it creates the page's target. Chrome accepts a size
+on a target only for a new window: headless-shell takes it as is, but Chrome on
+a display, as `chrome-stealth` runs it on Xvfb, refuses it as a position set on
+an existing window, and on 0.42.1 every render failed before it started. The
+patch asks for a new window for the render; closing the target closes the
+window.
+
 ### `xhr-prose-only.patch`
 
 One of CRW's fallbacks for a page whose text loads later builds markdown from long

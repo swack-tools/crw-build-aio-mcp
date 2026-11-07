@@ -27,6 +27,9 @@
 #     page's skeleton placeholders to fill is skipped with CHROME_FAST_READY,
 #     or a caller's waitFor; and the guard sits on that wait in the patched
 #     source, not on upstream's consent dismissal next to it.
+#   Tall window, tall-window-new-window.patch: CRW 0.42's sized render target
+#     is created as a new window, which Chrome on a display requires. No unit
+#     test; a render through chrome-stealth is the check (test-stealth.sh).
 #   Captured JSON, xhr-prose-only.patch: the fallback that builds markdown from
 #     a page's fetched JSON keeps prose, including text written without spaces
 #     and text with inline markup, and drops sensor payloads, scripts and CSS.
