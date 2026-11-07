@@ -67,7 +67,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      pub fn with_fast_ready(mut self, on: bool) -> Self {
          self.fast_ready = on;
          self
-@@ -2351,6 +2389,54 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
+@@ -2351,6 +2389,80 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
              && named.signal != crw_extract::antibot::AntibotSignal::StructuralFailure)
  }
  
@@ -119,10 +119,81 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +    std::env::var(name).is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 +}
 +
++/// More body text than any block page carries: the generic wall detector
++/// stops looking past this many characters.
++const WALL_TEXT_MAX: usize = 600;
++
++/// The status to report for a page read after a reload replaced the document
++/// the navigation reported on. `read` is the page's own status, which Chrome
++/// hides (reads 0) when the document came through a cross-origin redirect, as
++/// eBay sends a first visit. With it hidden, a document with more text than a
++/// wall carries and none of a wall's marks is the page, and the only status
++/// that fits a page is 200; the wall's 403 belonged to the document the reload
++/// replaced, and reporting it had the classifier fail three real eBay pages in
++/// a day. A small or marked body keeps the navigation's status (`None` here):
++/// eBay's own wall says nothing the detectors know, so its size tells.
++fn status_after_reload(read: Option<u16>, html: &str) -> Option<u16> {
++    match read {
++        Some(status) => Some(status),
++        None if !is_revisitable_wall(None, html)
++            && crate::detector::extract_body_text_len(&html.to_lowercase(), false)
++                > WALL_TEXT_MAX =>
++        {
++            Some(200)
++        }
++        None => None,
++    }
++}
++
  /// Is `document.contentType` one a page is read from? Markup, text and data
  /// are; a PDF, an image or a video is not.
  fn is_page_content_type(content_type: &str) -> bool {
-@@ -4230,6 +4316,76 @@ impl CdpRenderer {
+@@ -3747,8 +3859,9 @@ impl CdpRenderer {
+             // we attempt a partial-DOM snapshot and return `truncated = true`;
+             // `single.rs` decides success on md length.
+             let phase = self.post_navigate_phase(conn, &session_id, url, wait_for_ms, &net_tracker);
+-            let (html, truncated, settled) = match tokio::time::timeout(nav_budget, phase).await {
+-                Ok(Ok(html)) => (html, false, false),
++            let (html, truncated, settled, reload_status) =
++                match tokio::time::timeout(nav_budget, phase).await {
++                Ok(Ok((html, reload_status))) => (html, false, false, reload_status),
+                 Ok(Err(err)) => return Err(err),
+                 Err(_) => {
+                     // Before `Page.stopLoading` (which cancels requests and moves
+@@ -3790,16 +3903,16 @@ impl CdpRenderer {
+                         .chrome_budget_truncated_total
+                         .with_label_values(&[if html.is_empty() { "empty" } else { "ok" }])
+                         .inc();
+-                    (html, true, settled)
++                    (html, true, settled, None)
+                 }
+             };
+             // The status above is the first document's. An anti-bot challenge
+             // (Cloudflare's answers 403, AWS WAF's 202) reloads into the real
+             // page once it clears, and that page is the HTML read here, so
+             // report its status, not the challenge's.
+-            let status_code = if (status_code >= 400 || status_code == 202)
+-                && !is_challenge_page(&html)
+-            {
++            let status_code = if let Some(status) = reload_status {
++                status
++            } else if (status_code >= 400 || status_code == 202) && !is_challenge_page(&html) {
+                 Self::document_status(conn, &session_id)
+                     .await
+                     .unwrap_or(status_code)
+@@ -4067,7 +4180,10 @@ impl CdpRenderer {
+         url: &str,
+         wait_for_ms: Option<u64>,
+         net: &NetworkActivityTracker,
+-    ) -> CrwResult<String> {
++    ) -> CrwResult<(String, Option<u16>)> {
++        // The status of the page read, when a reload replaced the document the
++        // navigation reported on; see `status_after_reload`.
++        let mut reload_status = None;
+         // Phase-timing measurement (latency-qn): which post-navigate phase eats
+         // the render time? Emitted on the `render_phases` debug target (off in
+         // prod RUST_LOG=info; enable with RUST_LOG=render_phases=debug for bench).
+@@ -4230,6 +4346,78 @@ impl CdpRenderer {
              tokio::time::sleep(RELOAD_PAUSE).await;
              html = self.reload_and_read(conn, session_id, net).await?;
              html = self.wait_out_challenge(conn, session_id, url, html).await?;
@@ -196,13 +267,19 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +                        .await;
 +                }
 +            }
++            reload_status =
++                status_after_reload(Self::document_status(conn, session_id).await, &html);
          }
          let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
  
-@@ -4250,6 +4406,111 @@ impl CdpRenderer {
-         Ok(html)
-     }
+@@ -4247,7 +4435,112 @@ impl CdpRenderer {
+             "render phases",
+         );
  
+-        Ok(html)
++        Ok((html, reload_status))
++    }
++
 +    /// The URL of the document now in the page, past any redirect, if it can
 +    /// be read.
 +    async fn document_url(conn: &CdpConnection, session_id: &str) -> Option<String> {
@@ -306,12 +383,10 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +                .await;
 +        }
 +        dropped
-+    }
-+
+     }
+ 
      /// The HTTP status of the document now in the page, if it can be read.
-     async fn document_status(conn: &CdpConnection, session_id: &str) -> Option<u16> {
-         conn.send_recv(
-@@ -4329,25 +4590,36 @@ impl CdpRenderer {
+@@ -4329,25 +4622,36 @@ impl CdpRenderer {
              self.page_timeout,
          )
          .await?;
@@ -363,7 +438,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      }
  
      /// Measure the content box (Page.getLayoutMetrics) and decide whether a
-@@ -5969,6 +6241,55 @@ mod tests {
+@@ -5969,6 +6273,70 @@ mod tests {
          assert!(!r.skeleton_wait_applies(Some(500)));
      }
  
@@ -416,6 +491,33 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
 +        assert!(!r.browser_restart_due_now());
 +    }
 +
++    #[test]
++    fn reloaded_page_keeps_its_own_status_or_is_the_page() {
++        use super::status_after_reload;
++        let page = format!(
++            "<html><body><h1>Sony WH-1000XM6 for sale</h1>{}</body></html>",
++            "<p>A listing with a price, a condition and a seller.</p>".repeat(40)
++        );
++        let wall = "<html><head><title>Error Page | eBay</title></head><body>\
++                    <h1>Something went wrong</h1><p>Reference #18.2d351ab8</p></body></html>";
++        assert_eq!(status_after_reload(Some(403), &page), Some(403));
++        assert_eq!(status_after_reload(Some(200), wall), Some(200));
++        assert_eq!(status_after_reload(None, &page), Some(200));
++        assert_eq!(status_after_reload(None, wall), None);
++    }
++
      #[test]
      fn with_proxy_auth_base_stores_creds_and_default_country() {
          let r = CdpRenderer::new("chrome", "ws://x/", 1000, 1);
+diff --git a/crates/crw-renderer/src/detector.rs b/crates/crw-renderer/src/detector.rs
+--- a/crates/crw-renderer/src/detector.rs
++++ b/crates/crw-renderer/src/detector.rs
+@@ -527,7 +527,7 @@ fn visible_text_from_stripped_html(stripped: &str) -> String {
+ /// Rough estimate of non-whitespace text length inside `<body>` of a
+ /// lowercased HTML document. Returns `1000` as a "probably has content"
+ /// fallback if no `<body>` is found.
+-fn extract_body_text_len(lower: &str, was_truncated: bool) -> usize {
++pub(crate) fn extract_body_text_len(lower: &str, was_truncated: bool) -> usize {
+     if !lower.contains("<body") {
+         return 1000;
+     }

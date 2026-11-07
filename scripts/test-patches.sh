@@ -20,7 +20,8 @@
 #     the last drop was within the window, and never for a string that isn't a
 #     URL; a reload's snapshot without a <body> is of a
 #     page still being parsed; the browser is closed for a fresh profile once
-#     per cooldown, and only when asked.
+#     per cooldown, and only when asked; a reloaded page with its status hidden
+#     is reported as 200 unless its body is a wall.
 #   Skeleton wait, skeleton-wait-fast-ready.patch: CRW 0.41's wait for a
 #     page's skeleton placeholders to fill is skipped with CHROME_FAST_READY,
 #     or a caller's waitFor; and the guard sits on that wait in the patched
@@ -43,6 +44,7 @@ RENDERER_TESTS=(
   cdp::tests::wall_reset_once_per_host_per_cooldown
   cdp::tests::reload_snapshot_without_a_body_is_still_parsing
   cdp::tests::browser_restart_once_per_cooldown
+  cdp::tests::reloaded_page_keeps_its_own_status_or_is_the_page
 )
 # The proxy-only build, as bin/crw-mcp is.
 MCP_TESTS=(
