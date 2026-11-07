@@ -35,7 +35,9 @@ as `<DOCKERHUB_USERNAME>/crw-config-<NAME>`, signed with cosign.
   in `crw-config-buildcache` on Docker Hub, so a CRW change that leaves its
   dependencies alone skips recompiling them.
 - **Chrome.** The `chrome-stealth` key includes Google's current Chrome stable
-  version, so the nightly build picks up each Chrome release.
+  version, so the nightly build picks up each Chrome release, and
+  `build-images.sh` installs that exact version, so the rebuilt layer is a new
+  one rather than the cached install of the release before.
 
 ## Secrets
 
