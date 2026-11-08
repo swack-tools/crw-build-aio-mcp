@@ -59,10 +59,17 @@ SEARXNG_VERSION="$(sed -n 's/^DOCKER_TAG = "\(.*\)"/\1/p' "$(src_dir searxng)/se
 # Looked up only when chrome-stealth is among the targets, so an index outage
 # cannot fail a build of the others.
 if [[ -z "${CHROME_VERSION+x}" ]] && { ((${#targets[@]} == 0)) || [[ " ${targets[*]} " =~ " chrome-stealth " ]]; }; then
-  CHROME_VERSION="$(curl -fsSL -m 30 "https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-${arches[0]}/Packages" |
-    awk '/^Package: google-chrome-stable$/ {p=1} p && /^Version: / {print $2; exit}')" ||
-    die "could not read Chrome's package index; set CHROME_VERSION= to install whatever apt has"
-  log "Chrome stable for ${arches[0]}: $CHROME_VERSION"
+  # Retried, and only a warning when it still fails: a flaky fetch on a CI
+  # runner once failed a nightly's chrome-stealth build. apt then installs
+  # the current stable anyway; only the layer cache could serve an older one.
+  CHROME_VERSION="$(curl -fsSL -m 30 --retry 4 --retry-delay 5 --retry-all-errors \
+    "https://dl.google.com/linux/chrome/deb/dists/stable/main/binary-${arches[0]}/Packages" |
+    awk '/^Package: google-chrome-stable$/ {p=1} p && /^Version: / {print $2; exit}')" || CHROME_VERSION=""
+  if [[ -n "$CHROME_VERSION" ]]; then
+    log "Chrome stable for ${arches[0]}: $CHROME_VERSION"
+  else
+    warn "could not read Chrome's package index; installing whatever apt has as stable"
+  fi
 fi
 export PROJECT TAG REGISTRY="${REGISTRY:-}" BUILD_CACHE="${BUILD_CACHE:-}" REFRESH="${REFRESH:-}" PLATFORMS BUILD_DIR="$BUILD" DIST_DIR="$DIST" \
   CAMOUFOX_VERSION CAMOUFOX_RELEASE SEARXNG_VERSION CHROME_VERSION="${CHROME_VERSION-}"
