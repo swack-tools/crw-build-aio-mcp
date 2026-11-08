@@ -32,7 +32,12 @@ const KEYS = { Enter: 13, Tab: 9, Escape: 27, Space: 32 };
   let closed = false;
   ws.onmessage = e => {
     const m = JSON.parse(e.data);
-    if (m.id && pending[m.id]) { pending[m.id].ok(m); delete pending[m.id]; }
+    if (!m.id || !pending[m.id]) return;
+    // A protocol error (the page's session gone, a bad parameter) fails the
+    // command, so a lost page cannot pass for a finished step.
+    if (m.error) pending[m.id].bad(new Error(`${m.error.message || 'DevTools error'} (${m.error.code})`));
+    else pending[m.id].ok(m);
+    delete pending[m.id];
   };
   // Chrome can go away mid-run (the stack restarts it for a fresh profile):
   // fail every waiting command instead of leaving it pending forever.
