@@ -44,7 +44,8 @@ The installer does the following:
    each config change and asks before applying it.
 1. Installs CRW's agent skills into Claude Code, the Codex command-line tool, and
    Antigravity. They teach the agent which tool a task needs: search, scrape,
-   map, crawl, parse, or extract.
+   map, crawl, parse, or extract, and how to fill in and submit a form for you
+   in the stack's stealth Chrome.
 
 Claude Desktop reads its config only at launch, so if it's running, the installer
 quits it before the edit and reopens it afterward. It warns you about this first. Run the

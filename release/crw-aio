@@ -17,7 +17,7 @@ usage: crw-aio <command>
                          skills (shows the changes, asks first)
   skills install|uninstall [claude|codex|antigravity|all] [--dry-run] [--yes]
                          only the skills: when to search, scrape, map, crawl,
-                         parse or extract
+                         parse or extract, and how to fill in a form
   uninstall              remove the MCP entries, the stack and $ROOT
 
 crw listens on $(crw_url) (CRW_HOST_PORT in $ROOT/.env).
