@@ -1,9 +1,8 @@
 diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
-index 6e3d026..940f134 100644
 --- a/crates/crw-renderer/src/lib.rs
 +++ b/crates/crw-renderer/src/lib.rs
-@@ -805,6 +805,32 @@ fn is_unrenderable_body_error(e: &CrwError) -> bool {
-         || matches!(e, CrwError::HttpError(m) if m.starts_with("Response too large"))
+@@ -844,6 +844,32 @@ fn is_unrenderable_body_error(e: &CrwError) -> bool {
+     )
  }
  
 +/// A plain-HTTP failure the Chrome-impersonating client may get past: the
@@ -35,7 +34,7 @@ index 6e3d026..940f134 100644
  /// Cap on the warm per-proxy fetcher caches (see
  /// `cached_per_proxy_fetcher`): bound growth under arbitrary BYOP proxies,
  /// where config pools are small but the space of raw proxy URLs is not.
-@@ -1747,6 +1773,12 @@ impl FallbackRenderer {
+@@ -1791,6 +1817,12 @@ impl FallbackRenderer {
      /// SPA/thin/empty shapes, and never when `is_fingerprint_vendor_wall`
      /// says the wall needs JS. Returns the accepted result, or `None` to
      /// continue exactly as today (ladder, then today's fallbacks).
@@ -48,7 +47,7 @@ index 6e3d026..940f134 100644
      #[cfg(feature = "impersonated")]
      async fn try_impersonated_hop(
          &self,
-@@ -1754,6 +1786,7 @@ impl FallbackRenderer {
+@@ -1798,6 +1830,7 @@ impl FallbackRenderer {
          headers: &HashMap<String, String>,
          deadline: crw_core::Deadline,
          trigger: ImpersonatedTrigger,
@@ -56,7 +55,7 @@ index 6e3d026..940f134 100644
      ) -> Option<FetchResult> {
          self.impersonated.as_ref()?;
          // Budget split, mirroring the cloak-first arm's
-@@ -1769,12 +1802,13 @@ impl FallbackRenderer {
+@@ -1813,12 +1846,13 @@ impl FallbackRenderer {
          // A reserve is only owed when there IS a ladder to protect. An
          // HTTP-only deployment has nothing to fall through to, so it hands
          // the hop the whole remaining budget (this is the deployment the
@@ -72,7 +71,7 @@ index 6e3d026..940f134 100644
              deadline
          } else {
              let share = remaining / 2;
-@@ -1810,7 +1844,15 @@ impl FallbackRenderer {
+@@ -1854,7 +1888,15 @@ impl FallbackRenderer {
          };
          match fetcher.fetch(url, headers, None, deadline).await {
              Ok(mut r) => {
@@ -89,7 +88,7 @@ index 6e3d026..940f134 100644
                      r.credit_cost = credit_for(kind);
                      r.render_decision = Some(RenderDecision::Failover {
                          chain: vec![RendererKind::Http, kind],
-@@ -2478,10 +2520,43 @@ impl FallbackRenderer {
+@@ -2533,10 +2575,43 @@ impl FallbackRenderer {
          let is_hard_pinned = matches!(requested_renderer, Some(name) if name != "auto");
          match effective {
              Some(false) => {
@@ -135,7 +134,7 @@ index 6e3d026..940f134 100644
                  stamp_http_decision(&mut r, requested_renderer);
                  Ok(r)
              }
-@@ -2764,13 +2839,8 @@ impl FallbackRenderer {
+@@ -2822,13 +2897,8 @@ impl FallbackRenderer {
                  // request under a Chrome fingerprint cannot make it fast. It
                  // would only spend the ladder's remaining budget re-learning
                  // that the origin is slow.
@@ -150,7 +149,7 @@ index 6e3d026..940f134 100644
                          #[cfg(feature = "impersonated")]
                          if let Some(r) = self
                              .try_impersonated_hop(
-@@ -2778,6 +2848,7 @@ impl FallbackRenderer {
+@@ -2836,6 +2906,7 @@ impl FallbackRenderer {
                                  headers,
                                  deadline,
                                  ImpersonatedTrigger::Transport,
@@ -158,7 +157,7 @@ index 6e3d026..940f134 100644
                              )
                              .await
                          {
-@@ -2931,7 +3002,13 @@ impl FallbackRenderer {
+@@ -2990,7 +3061,13 @@ impl FallbackRenderer {
                          self.antibot_result(result.status_code, &result.html).signal,
                      )
                      && let Some(r) = self
@@ -173,7 +172,7 @@ index 6e3d026..940f134 100644
                          .await
                  {
                      return Ok(r);
-@@ -6550,6 +6627,145 @@ mod tests {
+@@ -6682,6 +6759,145 @@ mod tests {
          }
      }
  
