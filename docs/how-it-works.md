@@ -403,3 +403,9 @@ is busy, `up-stealth` offers the next free one and saves the choice to `.env`.
   `~/.agents/skills`, and `~/.gemini/config/skills` are CRW's own, from `skills/`
   in its repository, unchanged. The two it leaves out, `crw-migrate` and
   `crw-self-host`, cover moving to CRW or running it, not using this stack.
+- This repository adds one skill, `crw-browser-act` from `agent-skills/`. CRW's scrape
+  reads pages but cannot click or type, so this skill has the agent fill in and
+  submit a form when the user asks, ticking "I accept" for them, with
+  `scripts/browser-act.sh`. That script runs a list of steps (open, type, tick,
+  click, wait, read) in the chrome-stealth container with real mouse and
+  keyboard events, and prints the page.

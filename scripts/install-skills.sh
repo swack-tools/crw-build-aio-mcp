@@ -39,14 +39,17 @@ done
 # that keep pages out of an agent's context. Upstream's other two, crw-migrate
 # and crw-self-host, are about moving to crw or running it, not using this stack.
 SKILLS=(crw crw-search crw-scrape crw-map crw-crawl crw-parse crw-extract crw-watch
-  crw-research crw-dynamic-search crw-best-practices)
+  crw-research crw-dynamic-search crw-best-practices crw-browser-act)
+# Ours come from agent-skills/ in a checkout; a release bundle ships them in
+# skills/ beside upstream's.
+ours="$ROOT/agent-skills"
 
 # A release bundle ships skills/; a checkout reads upstream's.
 src="$ROOT/skills"
 [[ -d "$src" ]] || src="$(src_dir crw)/skills"
 if [[ "$action" == install ]]; then
   for s in "${SKILLS[@]}"; do
-    [[ -f "$src/$s/SKILL.md" ]] || die "missing $src/$s/SKILL.md — run: $(hint fetch update)"
+    [[ -f "$ours/$s/SKILL.md" || -f "$src/$s/SKILL.md" ]] || die "missing $src/$s/SKILL.md — run: $(hint fetch update)"
   done
 fi
 
@@ -60,6 +63,7 @@ skills_for() {
   local dest="$1" s from to
   for s in "${SKILLS[@]}"; do
     from="$src/$s/SKILL.md"
+    [[ ! -f "$ours/$s/SKILL.md" ]] || from="$ours/$s/SKILL.md"
     to="$dest/$s/SKILL.md"
     if [[ "$action" == install ]]; then
       if [[ -f "$to" ]] && cmp -s "$from" "$to"; then
