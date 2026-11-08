@@ -66,8 +66,10 @@ leaving the choice to the user or suggesting they do it by hand.
 | `{"click": {"text": "regex"}}` | Clicks the button or link whose text matches. |
 | `{"press": "Enter"}` | Presses a key: `Enter`, `Tab`, `Escape`, `Space`. |
 | `{"wait": selector}` or `{"wait": ms}` | Waits for an element to appear, or sleeps. |
-| `{"until": "regex"}` | Waits up to 20 s for the page text to match. |
+| `{"until": "regex"}` | Waits up to 20 s for the page text to match, and fails if it never does. |
 | `{"read": selector}` or `{"read": ""}` | Prints that element's text, or the page's main text. |
 
-The URL the run ended on goes to stderr. A step whose element never appears
-exits 1 and prints the page, so you can see what was there instead.
+The URL the run ended on goes to stderr. A step whose element never appears, or
+an `until` that never matches, exits 1 and prints the page, so you can see what
+was there instead. If chrome-stealth restarts mid-run, the script exits 1 with
+the connection closed; run it again.

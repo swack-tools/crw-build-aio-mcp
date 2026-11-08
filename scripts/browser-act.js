@@ -13,10 +13,11 @@
 //   {"click": "selector"}                     click an element
 //   {"click": {"text": "regex"}}              click a button or link by its text
 //   {"press": "Enter"}                        press a key
-//   {"until": "regex"}                        wait up to 20 s for the page text
+//   {"until": "regex"}                        wait up to 20 s for the page text (fails if it never matches)
 //   {"read": "selector"} | {"read": ""}       print that element's text, or the page's
 // Clicks and keys are real input events, as a person's would be. Exits 1 with
-// the page text when a step's element never appears.
+// the page text when a step's element never appears or an until never matches,
+// and exits 1 if Chrome goes away mid-run.
 const steps = JSON.parse(process.argv[2] || '[]');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const jitter = (a, b) => a + Math.random() * (b - a);
@@ -28,13 +29,21 @@ const KEYS = { Enter: 13, Tab: 9, Escape: 27, Space: 32 };
   await new Promise((ok, bad) => { ws.onopen = ok; ws.onerror = bad; });
   let id = 0;
   const pending = {};
+  let closed = false;
   ws.onmessage = e => {
     const m = JSON.parse(e.data);
-    if (m.id && pending[m.id]) { pending[m.id](m); delete pending[m.id]; }
+    if (m.id && pending[m.id]) { pending[m.id].ok(m); delete pending[m.id]; }
   };
-  const send = (method, params = {}, sessionId) => new Promise(r => {
+  // Chrome can go away mid-run (the stack restarts it for a fresh profile):
+  // fail every waiting command instead of leaving it pending forever.
+  ws.onclose = () => {
+    closed = true;
+    for (const i of Object.keys(pending)) { pending[i].bad(new Error('DevTools connection closed')); delete pending[i]; }
+  };
+  const send = (method, params = {}, sessionId) => new Promise((ok, bad) => {
+    if (closed) return bad(new Error('DevTools connection closed'));
     const i = ++id;
-    pending[i] = r;
+    pending[i] = { ok, bad };
     ws.send(JSON.stringify({ id: i, method, params, sessionId }));
   });
 
@@ -108,9 +117,15 @@ const KEYS = { Enter: 13, Tab: 9, Escape: 27, Space: 32 };
         await key(st.press);
         await sleep(800);
       } else if (st.until) {
-        for (let i = 0; i < 40; i++) {
-          if (await ev(`new RegExp(${JSON.stringify(st.until)}, 'i').test(document.body.innerText)`)) break;
-          await sleep(500);
+        let matched = false;
+        for (let i = 0; i < 40 && !matched; i++) {
+          matched = await ev(`new RegExp(${JSON.stringify(st.until)}, 'i').test(document.body.innerText)`);
+          if (!matched) await sleep(500);
+        }
+        if (!matched) {
+          const err = new Error('page text never matched: ' + st.until);
+          err.page = await pageText();
+          throw err;
         }
       } else if (st.read !== undefined) {
         console.log(st.read ? await ev(`(${find(st.read)})?.innerText`) : await pageText());
@@ -118,7 +133,7 @@ const KEYS = { Enter: 13, Tab: 9, Escape: 27, Space: 32 };
     }
     console.error('url: ' + await ev('location.href'));
   } finally {
-    await send('Target.closeTarget', { targetId });
+    if (!closed) await send('Target.closeTarget', { targetId }).catch(() => {});
     ws.close();
   }
 })().catch(e => {
