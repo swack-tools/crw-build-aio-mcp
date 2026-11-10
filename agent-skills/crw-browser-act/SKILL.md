@@ -53,6 +53,10 @@ leaving the choice to the user or suggesting they do it by hand.
    ]'
    ```
 
+   The script uses the k3s deployment by default. Set `CRW_EXEC=docker` when
+   using a local Docker stack; `CRW_EXEC=k8s` selects the estate deployment
+   explicitly.
+
 3. **Read the answer, and fix a step if needed.** A validation message in the
    printed text, such as one asking for a valid value, means a step missed;
    adjust it and run again rather than giving up.
