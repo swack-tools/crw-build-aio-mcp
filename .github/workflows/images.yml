@@ -21,6 +21,10 @@ on:
         description: Compile Camoufox even when its zip already exists (to time the ccache)
         type: boolean
         default: false
+      pin_crw:
+        description: Build crw at patches/crw/UPSTREAM, the commit the patches were tested on, instead of its head
+        type: boolean
+        default: false
     outputs:
       refs:
         description: The upstream commits built, as NAME_REF=<sha> pairs
@@ -64,7 +68,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Clone upstreams at their current heads
-        run: scripts/fetch-sources.sh
+        env:
+          PIN_CRW: ${{ inputs.pin_crw && '1' || '' }}
+        run: |
+          # A release builds the CRW the patches were tested on; the nightly
+          # builds CRW's head, so a patch upstream broke fails it as an alarm.
+          if [[ -n "$PIN_CRW" ]]; then CRW_REF="$(cat patches/crw/UPSTREAM)"; export CRW_REF; fi
+          scripts/fetch-sources.sh
       - name: Pin commits and find what needs building
         id: plan
         env:
