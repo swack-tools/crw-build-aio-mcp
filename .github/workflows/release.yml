@@ -43,6 +43,7 @@ jobs:
     uses: ./.github/workflows/images.yml
     with:
       tags: ${{ needs.version.outputs.version }},latest
+      pin_crw: true
     secrets: inherit
 
   bundle:
