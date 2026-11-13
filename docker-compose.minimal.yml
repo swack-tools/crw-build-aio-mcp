@@ -1,0 +1,25 @@
+# Laid over docker-compose.yml by `just up-minimal` (scripts/up.sh --minimal):
+# the stack without Camoufox, for a machine short on memory. crw renders with
+# stealth Chrome and falls back to impersonated-http, and keeps two Chrome tabs
+# warm instead of four.
+#
+# The trade-off: nothing renders a page Chrome is blocked on. Where the full
+# stack would retry it in Camoufox, this one fails the scrape as anti_bot, and
+# Cloudflare challenges that only Camoufox clears fail too. `just up-stealth`
+# brings the full stack back.
+services:
+  crw:
+    depends_on: !override
+      chrome-stealth:
+        condition: service_healthy
+      searxng:
+        condition: service_healthy
+    environment:
+      - CRW_RENDERER__CHROME_POOL__SIZE=${CRW_CHROME_POOL_SIZE:-2}
+      # A blank base_url leaves the Camoufox renderer unconfigured.
+      - CRW_RENDERER__CAMOUFOX__BASE_URL=
+      - CRW_RENDERER__CAMOUFOX__INCLUDE_IN_AUTO=false
+
+  # Kept out of `up` unless the camofox profile is asked for.
+  camofox:
+    profiles: ["camofox"]

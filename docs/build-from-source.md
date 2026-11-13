@@ -65,6 +65,29 @@ Every install and uninstall recipe prints the exact commands and config diffs,
 and then asks `Apply these changes? [y/N]`. Add `--dry-run` to only print them,
 or add `--yes` to skip the question. A run without a terminal needs `--yes`.
 
+### Run with less memory
+
+To start the stack without Camoufox, run the following:
+
+```sh
+just up-minimal
+```
+
+The minimal stack builds and runs CRW, stealth Chrome, and SearXNG. It skips the
+Camoufox compile and keeps two Chrome tabs open instead of four. On a Mac, it
+uses about 700 MB, against about 1.1 GB for the full stack.
+
+The trade-off is that nothing renders a page that Chrome is blocked on. The
+full stack retries that page in Camoufox. The minimal stack fails the scrape as
+`anti_bot`, and a request that sets `renderer: camoufox` is rejected. The
+Cloudflare challenge checks in `just test-stealth` need Camoufox, so they fail
+on the minimal stack.
+
+The minimal stack's settings are in `docker-compose.minimal.yml`, which
+`scripts/up.sh --minimal` lays over `docker-compose.yml`. To change the number
+of Chrome tabs, set `CRW_CHROME_POOL_SIZE` in `.env`. To bring Camoufox back,
+run `just up-stealth`.
+
 ### Allow tools in headless mode
 
 Headless `agy -p`, which `just test-stealth-antigravity` uses, denies MCP tools
@@ -100,26 +123,60 @@ The following differs from a Mac:
 
 ## Recipes
 
+Run `just` with no recipe to list them all. Each recipe that builds runs `fetch`
+first, so a missing upstream is cloned.
+
+### Run the stack
+
 | Recipe | Description |
 |---|---|
-| `up-stealth`, `run-stealth` | Build, choose a host port, run `compose up --wait`, and print the live renderers. |
-| `down`, `ps`, `logs [SERVICE...]`, `caps` | Stop the stack, show its status, follow its logs, or print `/v1/capabilities`. |
+| `up-stealth`, `run-stealth` | Build, choose a host port, run `compose up --wait`, and print the live renderers. This is the full stack, with Camoufox as the fallback when Chrome is blocked. |
+| `up-minimal` | Build and start the stack without Camoufox. It uses less memory and skips the Camoufox compile, but a page that Chrome is blocked on fails instead of falling back. See [Run with less memory](#run-with-less-memory). |
+| `down` | Stop the stack. |
+| `ps` | Show the status of each service. |
+| `logs [SERVICE...]` | Follow the logs of every service, or of the services you name. |
+| `caps` | Print `/v1/capabilities`, which lists the live renderers. |
+
+### Build
+
+| Recipe | Description |
+|---|---|
 | `build` | Build every image for this machine's architecture. |
 | `build-arm64`, `build-x86` | Build every image for one architecture. |
-| `build-all` | Build multi-architecture images for both architectures. |
+| `build-all` | Build multi-architecture images for both architectures. This compiles Camoufox twice, which takes hours. |
 | `push` | Run `build-all`, and then push to `$REGISTRY`. |
-| `build-camoufox [ARCH]` | Build only the Camoufox zip in `~/.crw/dist`. |
+| `build-camoufox [ARCH]` | Build only the Camoufox zip in `~/.crw/dist`. Set `FORCE=1` to rebuild it. |
 | `build-mcp` | Build the native `bin/crw-mcp`, a proxy-only build, from the patched checkout. |
-| `fetch` | Clone any missing upstream into `~/.crw/src`. |
+| `fetch [NAME...]` | Clone any missing upstream into `~/.crw/src`. |
 | `update` | Fast-forward every upstream, and then run `build`. |
-| `install`, `install-claude`, `install-codex`, `install-antigravity` | Register the MCP server and install the skills. Each takes `--dry-run` and `--yes`. |
-| `uninstall`, `uninstall-claude`, `uninstall-codex`, `uninstall-antigravity` | Remove the MCP server and the skills. Each takes `--dry-run` and `--yes`. |
-| `install-skills [TARGET]`, `uninstall-skills [TARGET]` | Only the skills. `TARGET` is `claude`, `codex`, `antigravity`, or `all`, the default. Each takes `--dry-run` and `--yes`. |
-| `test-stealth`, `test-stealth-claude`, `test-stealth-codex`, `test-stealth-antigravity` | Check the tiers over HTTP or through an MCP client. |
+
+### Register with MCP clients
+
+Each of these recipes takes `--dry-run` and `--yes`.
+
+| Recipe | Description |
+|---|---|
+| `install` | Register the MCP server and install CRW's agent skills in Claude, Codex, and Antigravity. |
+| `install-claude`, `install-codex`, `install-antigravity` | Register with one client family. |
+| `uninstall` | Remove the MCP server and the skills from every client. |
+| `uninstall-claude`, `uninstall-codex`, `uninstall-antigravity` | Remove them from one client family. |
+| `install-skills [TARGET]`, `uninstall-skills [TARGET]` | Install or remove only the skills. `TARGET` is `claude`, `codex`, `antigravity`, or `all`, the default. |
+
+### Test
+
+| Recipe | Description |
+|---|---|
+| `test-stealth` | Pin a scrape to each tier over HTTP, and then run the bot checks, an eBay listing, and three DataDome sites with default settings. |
+| `test-stealth-claude`, `test-stealth-codex`, `test-stealth-antigravity` | Run the same check through an MCP client. |
 | `test-patches` | Run the offline unit tests that the CRW patches add. Needs `cargo`. CI runs it on every pull request. |
-| `lint-docs` | Check the docs against the Google style with Vale. |
-| `bundle [PREFIX] [TAG]` | Assemble the disk image's contents from local images into `build/bundle`. |
-| `release VERSION` | Create the signed tag `vVERSION` and a draft GitHub release. CI does the rest. |
+| `lint-docs [FILE...]` | Check the docs against the Google style with Vale. |
+
+### Release
+
+| Recipe | Description |
+|---|---|
+| `bundle [PREFIX] [TAG]` | Assemble the disk image's contents from local images into `build/bundle`, to test `install.sh`. |
+| `release VERSION` | Create the signed tag `vVERSION` and a draft GitHub release. CI builds and publishes it. |
 
 ## Settings
 
@@ -135,6 +192,7 @@ Set these in `.env`. The file `.env.example` lists more of them.
 | `CAMOUFOX_CCACHE=<DIR>` | Keep ccache in a directory instead of a Docker volume. |
 | `REGISTRY=docker.io/<USER>/` | Set where `just push` pushes to. |
 | `CRW_HOST_PORT` | Set the host port for CRW. The default is 3000. |
+| `CRW_CHROME_POOL_SIZE` | Set how many Chrome tabs `just up-minimal` keeps open. The default is 2. |
 
 To force a Camoufox compile for one run, set `FORCE=1`.
 

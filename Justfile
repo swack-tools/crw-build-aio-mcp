@@ -67,6 +67,12 @@ up-stealth: build
 
 alias run-stealth := up-stealth
 
+# Start without Camoufox: less memory and no Camoufox compile, but no fallback, so a page Chrome is blocked on fails as anti_bot
+up-minimal: fetch
+    scripts/prep-sources.sh
+    scripts/build-images.sh {{ host_arch }} crw chrome-stealth searxng
+    scripts/up.sh --minimal
+
 # Stop the stack
 down:
     source scripts/lib.sh && compose down

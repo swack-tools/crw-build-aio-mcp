@@ -180,7 +180,10 @@ camoufox_arch() {
 # (scripts/release-bundle.sh) generates from it with pinned registry images.
 compose() {
   ensure_env
-  docker compose -p "$PROJECT" --env-file "$ROOT/.env" -f "$ROOT/docker-compose.yml" "$@"
+  local files=(-f "$ROOT/docker-compose.yml")
+  # up.sh --minimal: the stack without Camoufox (docker-compose.minimal.yml).
+  [[ -z "${CRW_MINIMAL:-}" ]] || files+=(-f "$ROOT/docker-compose.minimal.yml")
+  docker compose -p "$PROJECT" --env-file "$ROOT/.env" "${files[@]}" "$@"
 }
 
 crw_url() { echo "http://127.0.0.1:${CRW_HOST_PORT:-3000}"; }

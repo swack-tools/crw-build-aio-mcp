@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # Start the stack (images must already be built) and wait until it's healthy.
+# Usage: up.sh [--minimal]
+#   --minimal  leave Camoufox out (docker-compose.minimal.yml): less memory, but
+#              a page Chrome is blocked on fails instead of falling back to it
 source "$(dirname "$0")/lib.sh"
+
+case "${1:-}" in
+  "") unset CRW_MINIMAL ;;
+  --minimal) export CRW_MINIMAL=1 ;;
+  *) die "usage: up.sh [--minimal]" ;;
+esac
 
 # One stack per directory: stop one this directory's compose file started under
 # another project name. A v0.0.1 release install ran its first start as
@@ -35,7 +44,14 @@ if [[ -z "${CRW_TZ:-}" ]]; then
   if [[ -n "$tz" ]]; then export CRW_TZ="$tz"; else warn "could not read this machine's timezone; the browsers use UTC"; fi
 fi
 
-log "starting $PROJECT on $(crw_url)"
+if [[ -n "${CRW_MINIMAL:-}" ]]; then
+  # A Camoufox the full stack started is not an orphan to --remove-orphans,
+  # since its service still exists behind a profile, so stop it here.
+  compose --profile camofox rm -sf camofox
+  log "starting $PROJECT on $(crw_url) without Camoufox: a page Chrome is blocked on fails as anti_bot"
+else
+  log "starting $PROJECT on $(crw_url)"
+fi
 compose up -d --wait --remove-orphans
 
 for _ in $(seq 1 30); do
