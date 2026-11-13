@@ -120,7 +120,9 @@ Chromium image instead.
   way of turning it on in a container gets caught by a real anti-bot vendor. Akamai
   catches Mesa's software renderer, DataDome catches the same renderer under a real
   GPU's name, and Cloudflare catches Chrome's SwiftShader. With WebGL off, all three let
-  Chrome through. Chrome's GPU process logs `WebGL1 blocklisted` each time a page
+  Chrome through. For a page that needs WebGL, `CHROME_WEBGL=on` in `.env`
+  turns on Mesa's software renderer, which Akamai's sites then turn away.
+  Chrome's GPU process logs `WebGL1 blocklisted` each time a page
   script asks for a context, about 18 lines a page, so `start.sh` drops those lines
   from the container's log and keeps every other one.
 - **Reserved taskbar.** The display reserves 40 pixels for a taskbar, and the window

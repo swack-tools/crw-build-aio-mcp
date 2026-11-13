@@ -38,6 +38,16 @@ profile="$(mktemp -d)"
 DISK_CACHE="${CHROME_DISK_CACHE_BYTES:-33554432}"
 MEDIA_CACHE="${CHROME_MEDIA_CACHE_BYTES:-8388608}"
 
+# CHROME_WEBGL=on turns WebGL on with Mesa's software renderer, for a page that
+# needs it (iphey.com's test never finishes without it). Off by default: see
+# the WebGL note below for what it costs.
+webgl=()
+case "${CHROME_WEBGL:-off}" in
+  on) webgl=(--ignore-gpu-blocklist) ;;
+  off) ;;
+  *) echo "CHROME_WEBGL must be on or off, not ${CHROME_WEBGL}" >&2; exit 1 ;;
+esac
+
 node "$(dirname "$0")/chrome-stealth-relay.js" "$PORT" $((PORT + 1)) &
 # Moves the pointer over each page, and clicks Cloudflare's Turnstile checkbox
 # when a page shows one (pointer.js).
@@ -71,6 +81,7 @@ node "$(dirname "$0")/chrome-stealth-pointer.js" $((PORT + 1)) "$width" $((heigh
   --disable-renderer-backgrounding \
   --disk-cache-size="$DISK_CACHE" \
   --media-cache-size="$MEDIA_CACHE" \
+  "${webgl[@]}" \
   "$@" \
   about:blank 2> >(grep --line-buffered -vE 'WebGL[12] blocklisted' >&2) &
 
