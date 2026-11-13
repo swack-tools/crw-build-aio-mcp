@@ -44,6 +44,10 @@ lists the sites that pass.
   `docker compose up`: `up.sh` sets crw's User-Agent to the Chrome major that
   chrome-stealth runs and the timezone to this machine's. A User-Agent one
   version behind the browser had eBay walling almost every visit.
+- **Less memory.** `just up-minimal` (`scripts/up.sh --minimal`) leaves
+  Camoufox out through `docker-compose.minimal.yml`. Without it, a page Chrome
+  is blocked on fails as `anti_bot`, and the Cloudflare checks in
+  `test-stealth` fail. `just up-stealth` brings the full stack back.
 - **The API** is at `http://127.0.0.1:3000` (`/v1/scrape`, `/v1/search`,
   `/v1/map`, `/v1/crawl`). MCP clients reach it through `bin/crw-mcp`.
 - **Forms.** CRW's scrape cannot click or type. To fill in and submit a form for

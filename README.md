@@ -29,6 +29,10 @@ how MCP clients call it, tries each tier until one gets the page:
 1. If every tier is blocked, the scrape fails as blocked instead of returning the
    block page.
 
+On a machine short on memory, `just up-minimal` starts the stack without
+Camoufox, so a page that Chrome is blocked on fails instead of falling back. See
+[Run with less memory](docs/build-from-source.md#run-with-less-memory).
+
 Files, such as PDFs, go straight to `impersonated-http`. For the sites that
 this order got past when last checked, see
 [Anti-bot results](docs/anti-bot-results.md).
