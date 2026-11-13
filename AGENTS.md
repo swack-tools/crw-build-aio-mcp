@@ -147,7 +147,8 @@ curl -s 'https://versionhistory.googleapis.com/v1/chrome/platforms/linux/channel
 5. Read upstream's renderer changes for what they do to stealth, not only
    whether the patches apply. CRW 0.42 gave each render a tall window by sizing
    the target, which Chrome on a display refuses without `newWindow`, and every
-   render failed until `tall-window-new-window.patch`.
+   render failed until a patch added it. CRW 0.43.1 took the fix upstream, and
+   the patch was dropped.
 
 ### 4. Move to a new Chrome
 
