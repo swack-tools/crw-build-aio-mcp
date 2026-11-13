@@ -142,6 +142,8 @@ services:
     logging: *logging
     environment:
       - TZ=${CRW_TZ:-UTC}
+      # on gives Chrome WebGL, which Akamai and DataDome catch; see start.sh.
+      - CHROME_WEBGL=${CHROME_WEBGL:-off}
     # Reaps Chrome's exited child processes.
     init: true
     # Chrome's profile (start.sh makes it under /tmp) stays on the container's

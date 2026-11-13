@@ -192,6 +192,7 @@ Set these in `.env`. The file `.env.example` lists more of them.
 | `CAMOUFOX_CCACHE=<DIR>` | Keep ccache in a directory instead of a Docker volume. |
 | `REGISTRY=docker.io/<USER>/` | Set where `just push` pushes to. |
 | `CRW_HOST_PORT` | Set the host port for CRW. The default is 3000. |
+| `CHROME_WEBGL=on` | Give Chrome WebGL, for a page that needs it. Akamai's sites block that renderer, so it's off by default. |
 | `CRW_CHROME_POOL_SIZE` | Set how many Chrome tabs `just up-minimal` keeps open. The default is 2. |
 
 To force a Camoufox compile for one run, set `FORCE=1`.

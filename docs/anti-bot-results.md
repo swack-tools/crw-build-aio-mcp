@@ -49,7 +49,9 @@ Two sites don't return the real page:
 - **WebGL.** Chrome has no WebGL, as explained in
   [How it works](how-it-works.md#chrome-tier). As a result, bot.sannysoft.com fails
   its two WebGL rows, BrowserScan rates the fingerprint 90% authentic instead of
-  100%, and the check on iphey.com never finishes.
+  100%, and the check on iphey.com never finishes. Set `CHROME_WEBGL=on` to
+  turn WebGL on, at the cost that section describes, or scrape such a page with
+  `renderer: camoufox`, which spoofs WebGL.
 - **Host values.** The timezone, which `up.sh` sets, and the CPU count are the
   host's.
 - **fpscanner.** Its `WEBDRIVER` test on bot.incolumitas.com fails because
