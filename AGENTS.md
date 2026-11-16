@@ -139,8 +139,8 @@ curl -s 'https://versionhistory.googleapis.com/v1/chrome/platforms/linux/channel
      build fails on that, but read the hunk.
    - When upstream adds an argument to a function a patch calls, such as
      `fetch_with_js`, add it to the patch's own calls too.
-   - When upstream merges one of our fixes, often reworked, drop the patch,
-     but compare upstream's version with ours first: CRW 0.44.2 took
+   - When upstream merges a fix from a patch, often reworked, drop the patch,
+     but compare upstream's version with the patch first: CRW 0.44.2 took
      `cdp-stealth.patch` without its WebGL, User-Agent and settle changes, which
      the patch still carries.
 3. Write the new commit to `patches/crw/UPSTREAM`, move `~/.crw/src/crw` to it,

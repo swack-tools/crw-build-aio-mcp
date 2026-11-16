@@ -154,7 +154,7 @@ The patches in `patches/crw/` apply in name order, and later patches can build o
 earlier ones. `prep-sources.sh` applies them before an image build, and
 `build-mcp.sh` before it compiles the native MCP binary.
 
-CRW 0.44.2 and 0.44.3 took nine of our fixes upstream, some reworked: Camoufox
+CRW 0.44.2 and 0.44.3 took nine of these patches upstream, some reworked: Camoufox
 after Chrome in `chrome` mode, `waitFor` and the loading-page reread in
 Camoufox, the CDP automation tells, the challenge and block-page markers, the
 MCP data tools probe, the `renderJs: false` hop to `impersonated-http`, skipping
@@ -162,12 +162,9 @@ the skeleton wait with fast ready, a 404 or 410 as the answer, and prose-only
 markdown from captured JSON. Their patches are gone; the ones below are what
 upstream doesn't have.
 
-
-
-
 ### `cdp-stealth.patch`
 
-What is left of our CDP fixes after CRW took the rest in 0.44.2. CRW kept or
+What is left of the CDP fixes after CRW took the rest in 0.44.2. CRW kept or
 changed back three of them for its own default, a macOS User-Agent, so the patch
 puts them back for this stack's Linux Chrome:
 
@@ -201,7 +198,6 @@ browsers are blocked or fail, and for files:
   Akamai's wall wants, and one more non-browser request is what Akamai holds against
   your IP address.
 
-
 ### `revisit-walls.patch`
 
 When Chrome's first visit gets a block page, it reloads once after a short pause,
@@ -212,8 +208,6 @@ and its automatic check passes on the reload.
 A page also counts as a block by its HTTP status, because eBay's first answer to a
 fresh profile is a 403 that only reads "Something went wrong." A 429 doesn't count
 on its status alone, because another request right away doesn't help.
-
-
 
 ### `wall-cookie-reset.patch`
 
@@ -272,7 +266,6 @@ unrecognized, so neither its second reload nor the browser close fired. Should
 no response have been seen either, a reloaded page with more text than a wall
 carries and none of a wall's marks is reported as 200, and a small or marked
 one keeps the navigation's status.
-
 
 ### `zz-runtime-apt-upgrade.patch`
 
