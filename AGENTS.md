@@ -132,14 +132,17 @@ curl -s 'https://versionhistory.googleapis.com/v1/chrome/platforms/linux/channel
    commit before it.
 2. **Check where fuzzy hunks landed**, not just that they applied. Two have gone
    to the wrong place before:
-   - The fast-ready guard in `skeleton-wait-fast-ready.patch` once landed on
-     upstream's consent dismissal next to the skeleton wait. `test-patches.sh`
-     now greps for the call site.
+   - The fast-ready guard of the old `skeleton-wait-fast-ready.patch` once
+     landed on upstream's consent dismissal next to the skeleton wait.
    - New fields and initializer lines in `wall-cookie-reset.patch` once landed
      after a struct upstream had grown, or inside a different function. The
      build fails on that, but read the hunk.
    - When upstream adds an argument to a function a patch calls, such as
      `fetch_with_js`, add it to the patch's own calls too.
+   - When upstream merges one of our fixes, often reworked, drop the patch,
+     but compare upstream's version with ours first: CRW 0.44.2 took
+     `cdp-stealth.patch` without its WebGL, User-Agent and settle changes, which
+     the patch still carries.
 3. Write the new commit to `patches/crw/UPSTREAM`, move `~/.crw/src/crw` to it,
    and run `scripts/test-patches.sh`.
 4. Build, check the binary, live-test through a throwaway container, open the

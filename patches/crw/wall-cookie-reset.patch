@@ -1,4 +1,5 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
+index 3b675804..8714d406 100644
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
 @@ -6,7 +6,7 @@ use std::collections::HashMap;
@@ -10,7 +11,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  use std::time::{Duration, Instant};
  use tokio::sync::{Mutex, OnceCell, Semaphore, broadcast};
  use tokio_tungstenite::connect_async;
-@@ -109,6 +109,27 @@ const SETTLE_MAX_MS: u64 = 4000;
+@@ -110,6 +110,27 @@ const SETTLE_MAX_MS: u64 = 4000;
  /// `RELOAD_LOAD_MAX` to load before the settle above.
  const RELOAD_PAUSE: Duration = Duration::from_millis(1500);
  const RELOAD_LOAD_MAX: Duration = Duration::from_secs(12);
@@ -38,7 +39,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// How long a JavaScript dialog stays open before crw accepts it.
  const DIALOG_ANSWER_DELAY: Duration = Duration::from_millis(700);
  /// Max iterations for the auto-scroll lazy-load pass. 12 viewports usually
-@@ -581,6 +602,15 @@ pub struct CdpRenderer {
+@@ -599,6 +620,15 @@ pub struct CdpRenderer {
      /// The browser's own UA, presentable form, read once when the tier UA is
      /// not a browser UA. See [`Self::tier_user_agent`].
      native_ua: Arc<OnceCell<String>>,
@@ -54,7 +55,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  }
  
  impl CdpRenderer {
-@@ -616,6 +646,9 @@ impl CdpRenderer {
+@@ -634,6 +664,9 @@ impl CdpRenderer {
              fast_ready: false,
              user_agent: String::new(),
              native_ua: Arc::new(OnceCell::new()),
@@ -64,7 +65,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          }
      }
  
-@@ -665,6 +698,11 @@ impl CdpRenderer {
+@@ -683,6 +716,11 @@ impl CdpRenderer {
      /// Enable the event-driven earliest-ready exit (latency-qn). Quality-safe:
      /// keeps a mandatory body-text content floor so it never snapshots an empty
      /// shell; only changes WHEN a ready page is detected (sooner).
@@ -76,7 +77,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      pub fn with_fast_ready(mut self, on: bool) -> Self {
          self.fast_ready = on;
          self
-@@ -1887,6 +1925,10 @@ struct NetworkActivityTracker {
+@@ -1913,6 +1951,10 @@ struct NetworkActivityTracker {
      /// [`Self::budget_settled`] and the `nav budget hit` log line; the pump's
      /// adoption logic is unchanged.
      adopted_frame: std::sync::OnceLock<String>,
@@ -87,7 +88,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  }
  
  impl NetworkActivityTracker {
-@@ -1895,9 +1937,20 @@ impl NetworkActivityTracker {
+@@ -1921,9 +1963,20 @@ impl NetworkActivityTracker {
              in_flight: AtomicI64::new(0),
              last_change_ms: AtomicI64::new(now_unix_ms()),
              adopted_frame: std::sync::OnceLock::new(),
@@ -108,7 +109,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      /// Whether a page whose nav budget just fired had in fact finished: the
      /// tracker is counting the frame `Page.navigate` reported (so it is the
      /// top-level document, not an iframe or nothing at all) and that frame's
-@@ -2006,6 +2059,22 @@ async fn run_network_idle_pump(
+@@ -2032,6 +2085,22 @@ async fn run_network_idle_pump(
                      tracker.record_request_end();
                  }
              }
@@ -131,7 +132,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
              _ => {}
          }
      }
-@@ -2365,6 +2434,80 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
+@@ -2391,6 +2460,80 @@ fn is_revisitable_wall(status: Option<u16>, html: &str) -> bool {
              && named.signal != crw_extract::antibot::AntibotSignal::StructuralFailure)
  }
  
@@ -212,7 +213,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// Is `document.contentType` one a page is read from? Markup, text and data
  /// are; a PDF, an image or a video is not.
  fn is_page_content_type(content_type: &str) -> bool {
-@@ -3800,8 +3943,9 @@ impl CdpRenderer {
+@@ -3812,8 +3955,9 @@ impl CdpRenderer {
              // we attempt a partial-DOM snapshot and return `truncated = true`;
              // `single.rs` decides success on md length.
              let phase = self.post_navigate_phase(conn, &session_id, url, wait_for_ms, &net_tracker);
@@ -224,7 +225,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
                  Ok(Err(err)) => return Err(err),
                  Err(_) => {
                      // Before `Page.stopLoading` (which cancels requests and moves
-@@ -3843,17 +3987,17 @@ impl CdpRenderer {
+@@ -3855,7 +3999,7 @@ impl CdpRenderer {
                          .chrome_budget_truncated_total
                          .with_label_values(&[if html.is_empty() { "empty" } else { "ok" }])
                          .inc();
@@ -233,21 +234,41 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
                  }
              };
              // The status above is the first document's. An anti-bot challenge
-             // (Cloudflare's answers 403, AWS WAF's 202) reloads into the real
-             // page once it clears, and that page is the HTML read here, so
-             // report its status, not the challenge's.
+@@ -3864,18 +4008,17 @@ impl CdpRenderer {
+             // report its status, not the challenge's. A 404 or 410 is replaced
+             // only while the page is still the URL asked for: a dead link that
+             // redirects to the home page by script keeps its 404.
 -            let status_code = if (status_code >= 400 || status_code == 202)
 -                && !is_challenge_page(&html)
 -            {
--                Self::document_status(conn, &session_id)
 +            let status_code = if let Some(status) = reload_status {
 +                status
++            } else if matches!(status_code, 404 | 410) && !is_challenge_page(&html) {
+                 let target = serde_json::Value::from(url.to_string());
+-                let any_url = !matches!(status_code, 404 | 410);
+                 conn.send_recv(
+                     "Runtime.evaluate",
+                     serde_json::json!({
+                         "expression": format!(
+                             "(() => {{ const e = performance.getEntriesByType('navigation')[0]; \
+                              const u = new URL({target}); \
+-                             return e && ({any_url} || (location.origin === u.origin && location.pathname === u.pathname)) \
++                             return e && location.origin === u.origin && location.pathname === u.pathname \
+                              ? e.responseStatus || 0 : 0; }})()"
+                         ),
+                         "returnByValue": true,
+@@ -3889,6 +4032,10 @@ impl CdpRenderer {
+                 .and_then(|s| u16::try_from(s).ok())
+                 .filter(|s| *s != 0)
+                 .unwrap_or(status_code)
 +            } else if (status_code >= 400 || status_code == 202) && !is_challenge_page(&html) {
 +                Self::document_status(conn, &session_id, &net_tracker)
-                     .await
-                     .unwrap_or(status_code)
++                    .await
++                    .unwrap_or(status_code)
              } else {
-@@ -4120,7 +4264,10 @@ impl CdpRenderer {
+                 status_code
+             };
+@@ -4153,7 +4300,10 @@ impl CdpRenderer {
          url: &str,
          wait_for_ms: Option<u64>,
          net: &NetworkActivityTracker,
@@ -259,7 +280,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          // Phase-timing measurement (latency-qn): which post-navigate phase eats
          // the render time? Emitted on the `render_phases` debug target (off in
          // prod RUST_LOG=info; enable with RUST_LOG=render_phases=debug for bench).
-@@ -4277,12 +4424,86 @@ impl CdpRenderer {
+@@ -4310,12 +4460,86 @@ impl CdpRenderer {
          // loop above waited that out), and not when the caller set the timing.
          if wait_for_ms.is_none()
              && self.name == "chrome"
@@ -347,7 +368,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          }
          let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
  
-@@ -4300,11 +4521,139 @@ impl CdpRenderer {
+@@ -4333,11 +4557,139 @@ impl CdpRenderer {
              "render phases",
          );
  
@@ -489,7 +510,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
          conn.send_recv(
              "Runtime.evaluate",
              serde_json::json!({
-@@ -4382,25 +4731,36 @@ impl CdpRenderer {
+@@ -4415,25 +4767,36 @@ impl CdpRenderer {
              self.page_timeout,
          )
          .await?;
@@ -541,7 +562,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      }
  
      /// Measure the content box (Page.getLayoutMetrics) and decide whether a
-@@ -6056,6 +6416,107 @@ mod tests {
+@@ -6101,6 +6464,107 @@ mod tests {
          assert!(!r.skeleton_wait_applies(Some(500)));
      }
  
@@ -650,6 +671,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      fn with_proxy_auth_base_stores_creds_and_default_country() {
          let r = CdpRenderer::new("chrome", "ws://x/", 1000, 1);
 diff --git a/crates/crw-renderer/src/detector.rs b/crates/crw-renderer/src/detector.rs
+index 64abbb17..93897ffb 100644
 --- a/crates/crw-renderer/src/detector.rs
 +++ b/crates/crw-renderer/src/detector.rs
 @@ -527,7 +527,7 @@ fn visible_text_from_stripped_html(stripped: &str) -> String {

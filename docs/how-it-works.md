@@ -154,69 +154,32 @@ The patches in `patches/crw/` apply in name order, and later patches can build o
 earlier ones. `prep-sources.sh` applies them before an image build, and
 `build-mcp.sh` before it compiles the native MCP binary.
 
-### `camoufox-after-chrome.patch`
+CRW 0.44.2 and 0.44.3 took nine of our fixes upstream, some reworked: Camoufox
+after Chrome in `chrome` mode, `waitFor` and the loading-page reread in
+Camoufox, the CDP automation tells, the challenge and block-page markers, the
+MCP data tools probe, the `renderJs: false` hop to `impersonated-http`, skipping
+the skeleton wait with fast ready, a 404 or 410 as the answer, and prose-only
+markdown from captured JSON. Their patches are gone; the ones below are what
+upstream doesn't have.
 
-Lets Camoufox follow Chrome in auto mode (`include_in_auto`) when the mode is
-`chrome`, not only `auto`.
 
-### `camoufox-wait-for.patch`
 
-Makes the Camoufox renderer honor `waitFor`. Without `waitFor`, the renderer waits
-up to 6 seconds for the page to settle, using camofox-browser's own readiness
-check, instead of reading the page the moment navigation returns.
-
-### `camoufox-wait-loading.patch`
-
-Reads a page again if it still looks like it's loading, within the time that
-Camoufox already allows for a challenge to clear. On a busy machine, the 6-second
-wait could run out while the document was still arriving, and eBay's empty page
-shell came back as a successful scrape.
 
 ### `cdp-stealth.patch`
 
-- Stops turning on the CDP Runtime domain, which CRW never needed.
-- Makes each section of the injected stealth script patch only a value that's
-  missing or wrong, so desktop Chrome runs it as a no-op. Removes the WebGL spoof,
-  which claimed a macOS GPU, Intel Iris OpenGL Engine, under a Linux User-Agent.
+What is left of our CDP fixes after CRW took the rest in 0.44.2. CRW kept or
+changed back three of them for its own default, a macOS User-Agent, so the patch
+puts them back for this stack's Linux Chrome:
+
+- Removes the WebGL spoof, which claims a macOS GPU, Intel Iris OpenGL Engine,
+  under a Linux User-Agent.
 - Skips the User-Agent override when Chrome already sends that User-Agent, because
   an override without client-hint metadata empties `navigator.userAgentData`.
-- Reports the real page's HTTP status once an anti-bot challenge clears, instead
-  of the challenge's 403, and stops waiting. CRW used to take Cloudflare's telemetry
-  script, which every Cloudflare page carries, for a challenge still running.
 - Waits after a page loads until the network has been quiet for a second, within 1
   to 4 seconds, so scripts that check the browser after load have written their
-  result.
-- Waits for Kasada's challenge, an HTTP 429 that solves itself and reloads, as it
-  does for Cloudflare's.
-- Answers JavaScript dialogs (`alert`, `confirm`) after 0.7 seconds. CRW left them
-  open, which froze the page until the render timed out.
-- Adds `CRW_RENDERER__CHROME_OUTBOUND_CHECK`.
+  result. It skips the wait when the request sets `waitFor`.
 
-### `challenge-markers.patch`
-
-Fixes how CRW tells a block page from a page that loaded, which decides whether it
-tries the next tier:
-
-- PerimeterX's sensor tag and Cloudflare's telemetry script, which sit on pages
-  that loaded, no longer count as blocks. On Walmart, Wayfair, and Trulia, they had
-  sent every scrape on to Camoufox for nothing.
-- CRW recognizes Akamai's block page as adidas serves it ("Reference Error: …"),
-  Akamai's interstitial (`sec-if-cpt`, a proof of work that reloads into the page),
-  and Reddit's "Prove your humanity" captcha. Before, these came back as successful
-  scrapes of the block page.
-- Both browsers wait for Akamai's interstitial to clear, as they do for
-  Cloudflare's and Kasada's.
-- CRW reports the real page's status after AWS WAF's challenge, a 202, clears.
-
-### `mcp-data-tools-probe.patch`
-
-Lists the MCP server's two data tools, `crw_find_data` and `crw_get_data`, only
-when the API it proxies serves data sources. CRW 0.41 added them to every
-proxy-mode server. They fetch a manifest from `/v1/data/manifest`, which only
-the managed API serves, so against a server built here every call ended in
-`data_sources_unavailable`. At startup, the proxy asks for the manifest once. A
-404 hides both tools, and their sentence in the server instructions. Any other
-answer, or no answer, keeps them listed.
+It also adds `CRW_RENDERER__CHROME_OUTBOUND_CHECK`.
 
 ### `render-browser-first.patch`
 
@@ -238,27 +201,6 @@ browsers are blocked or fail, and for files:
   Akamai's wall wants, and one more non-browser request is what Akamai holds against
   your IP address.
 
-### `render-js-false-hop.patch`
-
-Gives a `renderJs: false` scrape the second request the README describes. CRW
-answered it with plain HTTP alone, so a site that turns the plain client's TLS
-handshake away blocked every such scrape. JB Hi-Fi answered a 429 to plain HTTP
-and a 200 to the `impersonated-http` tier, every time
-([#23](https://github.com/swack-tools/crw-build-aio-mcp/issues/23)). Upstream's
-auto mode makes that hop and its `renderJs: false` path didn't.
-
-When plain HTTP gets a block page, a 401, 403, 429 or 503, or a transport
-failure that a Chrome TLS fingerprint can get past, the scrape makes one more
-request through the `impersonated-http` client and returns that answer unless
-it's a block too. No browser runs in either case.
-
-The hop keeps two rules of its own, because nothing runs after it. Auto mode
-skips the hop on a vendor's JavaScript challenge, since Chrome follows and
-clears it; here the hop is the one chance the scrape has, and Cloudflare serves
-JB Hi-Fi's product pages with a challenge to the plain client and without one to
-the `impersonated-http` client. Auto mode also rejects a page that needs
-JavaScript, since Chrome would do better; here a request that set
-`renderJs: false` asked for that page as it is.
 
 ### `revisit-walls.patch`
 
@@ -271,32 +213,7 @@ A page also counts as a block by its HTTP status, because eBay's first answer to
 fresh profile is a 403 that only reads "Something went wrong." A 429 doesn't count
 on its status alone, because another request right away doesn't help.
 
-### `skeleton-wait-fast-ready.patch`
 
-Skips CRW 0.41's skeleton wait when `CHROME_FAST_READY` is on, as it is here,
-or when the request sets `waitFor`. That wait starts when a page shows three or
-more elements whose class names say skeleton, placeholder, or shimmer, and
-holds until the region around them gains 200 characters of text, or for 9
-seconds. Upstream added it for a flight search whose result list fills 6 to 18
-seconds after the page loads. On a JB Hi-Fi product page, whose placeholders
-are images and prices that never gain text, it held the full 9 seconds, and
-1.5 seconds on a Reddit page that sat still. Under load, those 9 seconds tipped
-the render past the page timeout and into a plain-HTTP fallback. Fast ready
-reads a page as soon as its text is there, which is the opposite choice, so
-the two don't combine. Turn `CRW_RENDERER__CHROME_FAST_READY` off to get the
-wait back.
-
-### `status-not-found.patch`
-
-Treats a 404 or 410 as the answer, so a dead link fails as
-`Target returned 404 Not Found`, as it does with `renderJs: false`. Upstream treats
-those statuses as possible blocks and tries the next browser. Camoufox reported
-every page as a 200, so a dead link came back as a successful scrape of its "Page
-not found" page.
-
-A block page served with a 404 still goes to the next browser. The Camoufox tier
-now passes on a 404 or 410 from camofox-browser's navigation. Other statuses still
-read as 200, because a challenge may have cleared after them.
 
 ### `wall-cookie-reset.patch`
 
@@ -356,22 +273,6 @@ no response have been seen either, a reloaded page with more text than a wall
 carries and none of a wall's marks is reported as 200, and a small or marked
 one keeps the navigation's status.
 
-### `xhr-prose-only.patch`
-
-One of CRW's fallbacks for a page whose text loads later builds markdown from long
-strings in the JSON that the page fetched. It took any string of 120 characters or
-more. Anti-bot sensor replies (PerimeterX's base64 payload), script bundles, and
-stylesheets that pages fetch as JSON became the whole markdown of chegg.com and
-homedepot.com, which read as a block page.
-
-The fallback now keeps only strings that read as prose. It judges the text that a
-reader sees, with HTML tags dropped and entities such as `&nbsp;` or `&#x4E2D;`
-decoded. A string qualifies if it has little code punctuation and either of the
-following:
-
-- At least eight words, with none over 60 characters.
-- Mostly the script's letters, for languages written without spaces, such as
-  Chinese, Japanese, and Thai.
 
 ### `zz-runtime-apt-upgrade.patch`
 
