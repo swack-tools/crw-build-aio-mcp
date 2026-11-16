@@ -1,7 +1,8 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
+index a4775209..8cf43832 100644
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
-@@ -2335,6 +2335,13 @@ fn is_challenge_page(html: &str) -> bool {
+@@ -2371,6 +2371,13 @@ fn is_challenge_page(html: &str) -> bool {
          || lower.contains("attention required")
  }
  
@@ -15,7 +16,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  /// Detect LightPanda/Chrome navigation error pages.
  fn detect_navigation_error(html: &str) -> Option<String> {
      if html.len() > 2000 {
-@@ -3723,6 +3730,14 @@ impl CdpRenderer {
+@@ -3752,6 +3759,14 @@ impl CdpRenderer {
                  .get("errorText")
                  .and_then(|value| value.as_str())
              {
@@ -30,7 +31,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
                  return Err(CrwError::RendererError(format!(
                      "Navigation failed: {error_text}"
                  )));
-@@ -3819,6 +3834,23 @@ impl CdpRenderer {
+@@ -3857,6 +3872,23 @@ impl CdpRenderer {
              } else {
                  status_code
              };
@@ -54,7 +55,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
              // Screenshot capture runs AFTER the page-load budget race resolves,
              // with its own timeout. A full-page capture of a heavy page must not
              // be cancelled by the nav budget (which closes the WS mid-capture and
-@@ -5569,7 +5601,7 @@ mod tests {
+@@ -5619,7 +5651,7 @@ mod tests {
  
      // --- is_challenge_page ------------------------------------------------------
  
@@ -63,7 +64,7 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
  
      #[test]
      fn challenge_page_detects_cloudflare_just_a_moment() {
-@@ -5615,6 +5647,27 @@ mod tests {
+@@ -5665,6 +5697,27 @@ mod tests {
          ));
      }
  
@@ -92,9 +93,10 @@ diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
      fn challenge_page_detects_akamai_interstitial() {
          // marriott.com's.
 diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
+index 75946ff0..3cf095af 100644
 --- a/crates/crw-renderer/src/lib.rs
 +++ b/crates/crw-renderer/src/lib.rs
-@@ -616,11 +616,7 @@ fn demote_wall_to_ladder_failure(
+@@ -617,11 +617,7 @@ fn demote_wall_to_ladder_failure(
      may_substitute: bool,
  ) -> CrwResult<FetchResult> {
      match js {
@@ -107,7 +109,7 @@ diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
              Err(CrwError::RendererError(
                  r.block
                      .map(|b| b.reason)
-@@ -631,6 +627,32 @@ fn demote_wall_to_ladder_failure(
+@@ -632,6 +628,32 @@ fn demote_wall_to_ladder_failure(
      }
  }
  
@@ -140,7 +142,7 @@ diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
  /// The verdict for a wall no browser tier could clear: every tier the ladder
  /// ran came back with it, or the PDF gate skipped the ladder and the HTTP body
  /// is that same generic wall. (A PDF with a hard-block status and any other
-@@ -792,6 +814,22 @@ pub(crate) fn url_path_is_pdf(url: &str) -> bool {
+@@ -809,6 +831,22 @@ pub(crate) fn url_path_is_pdf(url: &str) -> bool {
      url::Url::parse(url).is_ok_and(|u| u.path().to_ascii_lowercase().ends_with(".pdf"))
  }
  
@@ -163,7 +165,7 @@ diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
  /// An HTTP-tier error that says the body is a document no other client can turn
  /// into a page: not a web page at all (`UnsupportedContentType`: a .docx ZIP, an
  /// image), or over the size cap (`ResponseTooLarge`). Single owner for the set the JS escalation arms and
-@@ -1594,6 +1632,28 @@ impl FallbackRenderer {
+@@ -1638,6 +1676,28 @@ impl FallbackRenderer {
          })
      }
  
@@ -192,7 +194,7 @@ diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
      /// Warm per-proxy fetcher cache shared by the two HTTP-shaped tiers: reuse
      /// a client previously bound to the same `REQUEST_PROXY` entry, else build
      /// one via `build` (fail-closed) and remember it. The build runs OUTSIDE
-@@ -2481,7 +2541,52 @@ impl FallbackRenderer {
+@@ -2574,7 +2634,52 @@ impl FallbackRenderer {
                  Ok(r)
              }
              Some(true) => {
@@ -246,7 +248,7 @@ diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
                  // An HTTP-layer failure is not terminal here either: the auto arm
                  // escalates on it (bench: 10/147 false "unreachable" + 5/147
                  // "http_502" recover via a real Chromium navigation), and a
-@@ -2491,7 +2596,7 @@ impl FallbackRenderer {
+@@ -2584,7 +2689,7 @@ impl FallbackRenderer {
                  // arm — never reached the browser on an origin that rejects
                  // reqwest's TLS fingerprint.
                  let mut http_result = match self
@@ -255,7 +257,7 @@ diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
                      .fetch(url, headers, None, deadline)
                      .await
                  {
-@@ -2509,35 +2614,39 @@ impl FallbackRenderer {
+@@ -2602,35 +2707,39 @@ impl FallbackRenderer {
                              error = %LogErr(&e),
                              "HTTP fetch failed, escalating to JS renderer",
                          );
@@ -323,7 +325,7 @@ diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
                      }
                      Err(e) => return Err(e),
                  };
-@@ -2588,18 +2697,24 @@ impl FallbackRenderer {
+@@ -2681,18 +2790,24 @@ impl FallbackRenderer {
                      // debug and because the request is billed either way.
                      let is_auth_blocked =
                          soft_block_warrants_js(http_result.status_code, &http_result.html);
@@ -360,7 +362,7 @@ diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
                      // A ladder result that is nothing but a wall must not
                      // displace a usable HTTP body. This is the preference the
                      // old error carried implicitly; see the helper.
-@@ -2630,10 +2745,7 @@ impl FallbackRenderer {
+@@ -2723,10 +2838,7 @@ impl FallbackRenderer {
                          Err(e)
                              if screenshot_requested()
                                  || is_hard_pinned
@@ -372,7 +374,7 @@ diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
                          {
                              Err(e)
                          }
-@@ -4146,6 +4258,14 @@ impl FallbackRenderer {
+@@ -4241,6 +4353,14 @@ impl FallbackRenderer {
                          }
                      });
                  }
@@ -387,7 +389,7 @@ diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
                  Err(e) => {
                      // A replayed hedge leg was already logged as `hedge leg failed`.
                      if !was_replayed {
-@@ -4905,6 +5025,12 @@ impl FallbackRenderer {
+@@ -5000,6 +5120,12 @@ impl FallbackRenderer {
              // tier failed outright, now get the verdict instead of a 502.
              if detector::looks_like_generic_bot_wall(&result.html, result.truncated) {
                  result.block = Some(unclearable_wall_verdict());
@@ -400,8 +402,8 @@ diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
              }
              Ok(result)
          } else {
-@@ -6366,6 +6492,196 @@ mod tests {
-         );
+@@ -6600,6 +6726,196 @@ mod tests {
+         }
      }
  
 +    /// Forced JS sends a page to the browser before any HTTP request (an HTTP
@@ -597,7 +599,7 @@ diff --git a/crates/crw-renderer/src/lib.rs b/crates/crw-renderer/src/lib.rs
      /// An HTTP tier whose origin refused a body over the size cap.
      struct OversizeBody;
      #[async_trait::async_trait]
-@@ -6394,10 +6710,11 @@ mod tests {
+@@ -6628,10 +6944,11 @@ mod tests {
  
      /// Same rule as the binary body, for the size cap: the prod shape is a
      /// 52 to 78 MB PDF, which chrome aborts as a download (`net::ERR_ABORTED`)

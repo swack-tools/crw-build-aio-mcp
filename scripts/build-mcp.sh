@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Compile the native crw-mcp proxy binary from the crw checkout with
-# patches/crw/ applied, as the images have them (mcp-data-tools-probe.patch is
-# the one it needs). The binary lands in the checkout's target/release/; the
+# patches/crw/ applied, as the images have them. The binary lands in the
+# checkout's target/release/; the
 # Justfile's build-mcp recipe moves it into bin/.
 # Usage: build-mcp.sh
 source "$(dirname "$0")/lib.sh"
