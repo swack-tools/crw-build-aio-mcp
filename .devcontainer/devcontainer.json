@@ -1,0 +1,7 @@
+{
+  "name": "CRW GitHub Actions runner",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "vscode"
+}
