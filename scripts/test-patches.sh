@@ -1,20 +1,12 @@
 #!/usr/bin/env bash
 # Offline regression tests for our patches to crw: clone crw (CRW_REF to pin
-# it), apply patches/crw/, and run the unit tests those patches add, against
+# it), apply patches/crw/, and run the selected renderer tests against
 # mock servers rather than live sites, so CI can run them on every change.
 #
 #   eBay (#10), revisit-walls.patch: Chrome reloads a page only its status
 #     marks as a block, such as eBay's 403 "Something went wrong" to a fresh
 #     profile, but not a 404 or 429 with the same markup.
-#   eBay (#10), camoufox-wait-loading.patch: Camoufox reads a page again while
-#     it is still eBay's empty shell, instead of returning it as a success.
-#   Akamai, render-browser-first.patch: when both browsers get Akamai's wall,
-#     the scrape fails as blocked without an HTTP request from this IP; other
-#     vendors' walls still fall back to HTTP, and a real HTTP body wins.
-#   renderJs: false (#23), render-js-false-hop.patch: a plain-HTTP block gets
-#     one more request through the impersonated-http client, whose answer wins
-#     unless it is a block too, and no browser runs; a clean answer stays on
-#     plain HTTP.
+#   Upstream destination policy: a refusal must stop renderer fallback.
 #   eBay, wall-cookie-reset.patch: a host whose wall outlasts the reload has
 #     its cookies dropped once, not again within the cooldown, as a burst when
 #     the last drop was within the window, and never for a string that isn't a
@@ -23,16 +15,6 @@
 #     per cooldown, and only when asked; the tracker keeps the main frame's
 #     last document status, iframes aside; a reloaded page with no status seen
 #     is reported as 200 unless its body is a wall.
-#   Skeleton wait, skeleton-wait-fast-ready.patch: CRW 0.41's wait for a
-#     page's skeleton placeholders to fill is skipped with CHROME_FAST_READY,
-#     or a caller's waitFor; and the guard sits on that wait in the patched
-#     source, not on upstream's consent dismissal next to it.
-#   Captured JSON, xhr-prose-only.patch: the fallback that builds markdown from
-#     a page's fetched JSON keeps prose, including text written without spaces
-#     and text with inline markup, and drops sensor payloads, scripts and CSS.
-#   MCP data tools, mcp-data-tools-probe.patch: a proxy to an API whose
-#     /v1/data/manifest is a 404 lists neither data tool and refuses a call
-#     to one; any other answer, or none, keeps them listed.
 #
 # A test that is renamed or dropped fails the run instead of matching nothing.
 # Usage: test-patches.sh
@@ -41,39 +23,17 @@ source "$(dirname "$0")/lib.sh"
 RENDERER_FEATURES="cdp,camoufox,impersonated"
 RENDERER_TESTS=(
   cdp::tests::revisitable_walls
-  camoufox::tests::page_still_loading_is_read_again
-  tests::forced_js_vendor_wall_falls_back_or_is_the_verdict
-  tests::render_js_false_hops_to_impersonated_on_a_wall
-  cdp::tests::skeleton_wait_skipped_with_fast_ready_or_a_wait_for
+  tests::a_policy_refusal_is_never_retried_by_another_tier
   cdp::tests::wall_reset_once_per_host_per_cooldown
   cdp::tests::reload_snapshot_without_a_body_is_still_parsing
   cdp::tests::browser_restart_once_per_cooldown
   cdp::tests::reloaded_page_keeps_its_own_status_or_is_the_page
   cdp::tests::tracker_keeps_the_main_frame_document_status
 )
-EXTRACT_TESTS=(
-  private_tests::xhr_extract_skips_payloads_code_and_css
-  private_tests::xhr_extract_keeps_text_written_without_spaces
-  private_tests::xhr_extract_keeps_text_with_html_formatting
-)
-# The proxy-only build, as bin/crw-mcp is.
-MCP_TESTS=(
-  tests::handle_request_hides_the_data_tools_when_the_api_has_none
-  tests::data_tools_available_hides_them_only_on_a_manifest_404
-)
 
 command -v cargo >/dev/null || die "cargo is not installed: see https://rustup.rs"
 "$ROOT/scripts/fetch-sources.sh" crw
 apply_patches crw
-
-# A fuzzy refresh can land a hunk on the wrong call site and still compile: the
-# fast-ready guard once moved from the skeleton wait to upstream's consent
-# dismissal, which the helper's unit test cannot see. Check the call sites.
-cdp="$(src_dir crw)/crates/crw-renderer/src/cdp.rs"
-grep -A1 'if self.skeleton_wait_applies(wait_for_ms) {' "$cdp" | grep -q '_sk_t' ||
-  die "skeleton-wait-fast-ready.patch: the fast-ready guard is not on the skeleton wait"
-grep -B1 'Self::dismiss_consent(conn, session_id).await;' "$cdp" | grep -q 'if wait_for_ms.is_none() {' ||
-  die "skeleton-wait-fast-ready.patch: consent dismissal must stay auto-mode only, not fast-ready"
 
 out="$(mktemp)"
 trap 'rm -f "$out"' EXIT
@@ -87,10 +47,8 @@ run_tests() {
   (cd "$(src_dir crw)" && cargo test --locked -p "$crate" "$@" -- --exact "${tests[@]}") 2>&1 |
     tee "$out" || die "patch tests failed"
   for t in "${tests[@]}"; do
-    grep -q "^test $t \.\.\. ok$" "$out" || die "$t did not run: was it renamed in patches/crw/? update the tests in $0"
+    grep -q "^test $t \.\.\. ok$" "$out" || die "$t did not run: was it renamed upstream or in patches/crw/? update the tests in $0"
   done
 }
 run_tests crw-renderer "${RENDERER_TESTS[@]}" -- --features "$RENDERER_FEATURES" --lib
-run_tests crw-extract "${EXTRACT_TESTS[@]}" -- --lib
-run_tests crw-mcp "${MCP_TESTS[@]}" -- --no-default-features --bin crw-mcp
-log "all $((${#RENDERER_TESTS[@]} + ${#EXTRACT_TESTS[@]} + ${#MCP_TESTS[@]})) patch tests passed"
+log "all ${#RENDERER_TESTS[@]} patch tests passed"

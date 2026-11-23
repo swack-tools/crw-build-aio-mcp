@@ -23,8 +23,8 @@ as `<DOCKERHUB_USERNAME>/crw-config-<NAME>`, signed with cosign.
 - **Weekly refresh.** Every key also includes the ISO week, so the first run of each
   week rebuilds every image and picks up new base images and distro packages even if
   upstream was quiet. CI doesn't recompile Camoufox for this.
-- **Camoufox.** CI compiles it only when its build inputs change, on a free x86_64 runner,
-  in about 2 hours and 10 minutes per architecture. The key (`camoufox_key` in
+- **Camoufox.** CI compiles it on a free x86_64 runner when its build inputs
+  change. Each architecture takes about 2 hours and 10 minutes. The key (`camoufox_key` in
   `scripts/lib.sh`) hashes upstream's `browser/` tree minus its tests,
   `patches/camoufox/`, and `build-camoufox.sh`. Upstream's README, docs, and Python
   and TypeScript libraries change most days and don't trigger a compile. The zips

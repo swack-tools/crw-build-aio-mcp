@@ -19,7 +19,7 @@ stack gets through most of them, through four parts:
 | `chrome-stealth` | Real Google Chrome stable on Xvfb, driven over the Chrome DevTools Protocol (CDP), with a pointer helper that moves the mouse like a person and WebGL off on purpose | `docker/chrome-stealth/` |
 | `camofox` | Camoufox, a fingerprint-spoofing Firefox, behind the camofox-browser REST server. The fallback when Chrome is blocked. Heavy, so some installs turn it off | `docker/camofox/`, built from source |
 | `impersonated-http` | No browser; Chrome's TLS and HTTP/2 fingerprint. Fast, and the last resort | inside `crw` |
-| Patches to CRW | Fixes that make CRW use those well: browser before HTTP, reloads and cookie drops on a wall, closing Chrome for a fresh profile when a site has judged it, reading the status of the page actually shown | `patches/crw/*.patch` |
+| Patches to CRW | Fixes that make CRW use those well: reloads and cookie drops on a wall, closing Chrome for a fresh profile when a site has judged it, reading the status of the page actually shown | `patches/crw/*.patch` |
 
 `docs/how-it-works.md` explains each patch and setting. `docs/anti-bot-results.md`
 lists the sites that pass.
@@ -132,14 +132,17 @@ curl -s 'https://versionhistory.googleapis.com/v1/chrome/platforms/linux/channel
    commit before it.
 2. **Check where fuzzy hunks landed**, not just that they applied. Two have gone
    to the wrong place before:
-   - The fast-ready guard in `skeleton-wait-fast-ready.patch` once landed on
-     upstream's consent dismissal next to the skeleton wait. `test-patches.sh`
-     now greps for the call site.
+   - The fast-ready guard of the old `skeleton-wait-fast-ready.patch` once
+     landed on upstream's consent dismissal next to the skeleton wait.
    - New fields and initializer lines in `wall-cookie-reset.patch` once landed
      after a struct upstream had grown, or inside a different function. The
      build fails on that, but read the hunk.
    - When upstream adds an argument to a function a patch calls, such as
      `fetch_with_js`, add it to the patch's own calls too.
+   - When upstream merges a fix from a patch, often reworked, drop the patch,
+     but compare upstream's version with the patch first: CRW 0.44.2 took
+     `cdp-stealth.patch` without its WebGL, User-Agent and settle changes, which
+     the patch still carries.
 3. Write the new commit to `patches/crw/UPSTREAM`, move `~/.crw/src/crw` to it,
    and run `scripts/test-patches.sh`.
 4. Build, check the binary, live-test through a throwaway container, open the

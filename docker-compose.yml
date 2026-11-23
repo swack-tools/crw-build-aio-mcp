@@ -3,7 +3,7 @@
 # registry's). It started from the compose files in crw's repo and keeps
 # their hardening. scripts/prep-sources.sh warns when upstream changes one of
 # these crw files (git blob ids), so the change can be weighed here:
-#   docker-compose.yml           139b4e2d6fbac724e7034f38da0c93ddd7f382c4
+#   docker-compose.yml           cf773338c71a152ef0577e0f40d7df6accb0fc9e
 #   docker-compose.stealth.yml   dc04ca0872ee3423b23a64c22b6bc0094a22ee10
 #   config/searxng/settings.yml  5f88f417910c58e4995b4452d03a40f47d70fdb8
 
@@ -72,12 +72,6 @@ services:
       # which is an incognito window as far as pages can tell (its storage
       # quota gives it away), and fingerprint.com reports it as one.
       - CRW_RENDERER__CHROME_CONTEXT_POOL_ENABLED=false
-      # Let Chrome's requests go straight out, as in a person's browser.
-      # Upstream pauses each one to check it against private network ranges,
-      # which breaks some anti-bot scripts (Kasada's cleared one cold visit
-      # in four). Chrome's own Local Network Access still asks before a public
-      # page reaches a private address (cdp-stealth.patch adds this switch).
-      - CRW_RENDERER__CHROME_OUTBOUND_CHECK=false
       # crw sends this User-Agent from every tier (upstream's is "CRW/0.0.1").
       # scripts/up.sh sets CRW_USER_AGENT to match chrome-stealth's Chrome.
       - CRW_CRAWLER__USER_AGENT=${CRW_USER_AGENT:-Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36}
