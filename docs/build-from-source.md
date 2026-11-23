@@ -121,6 +121,34 @@ The following differs from a Mac:
 - The MCP recipes register Claude Code and Codex. They skip Claude Desktop, which
   is macOS only.
 
+## Run workflows locally
+
+Install Docker, the Dev Container command-line tool (`devcontainer`), and
+`act` 0.2.98 or later. Run these commands from the root of a regular Git clone to
+build the runner image and run the Docs and Tests workflows:
+
+```sh
+devcontainer build --workspace-folder . --platform linux/amd64 --image-name localhost/crw-actions:amd64
+act --trust-project-actrc --container-architecture linux/amd64 workflow_dispatch -W .github/workflows/docs.yml
+act --trust-project-actrc --container-architecture linux/amd64 workflow_dispatch -W .github/workflows/test.yml
+```
+
+`act` starts a fresh container from the image for each job. Use the AMD64 image
+on Apple Silicon too because the Docs workflow downloads an AMD64 Vale binary.
+Docker needs to support AMD64 emulation on an Arm host. To prepare the image for
+jobs labeled `ubuntu-24.04-arm`, build the same image for Arm:
+
+```sh
+devcontainer build --workspace-folder . --platform linux/arm64 --image-name localhost/crw-actions:arm64
+```
+
+The project configuration disables the host Docker socket and default
+credential inputs. Use `act --trust-project-actrc --list` to inspect jobs.
+Use GitHub Actions for publishing, signing, the macOS disk image, and the CLA
+workflow. Image jobs need registry credentials and a Docker daemon. If you
+test those jobs locally, use a disposable daemon because the Camoufox job
+prunes it.
+
 ## Recipes
 
 Run `just` with no recipe to list them all. Each recipe that builds runs `fetch`
