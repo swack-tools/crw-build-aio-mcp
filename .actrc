@@ -2,6 +2,7 @@
 --platform=ubuntu-24.04-arm=localhost/crw-actions:arm64
 --platform=ubuntu-latest=localhost/crw-actions:amd64
 --pull=false
+--use-new-action-cache
 --rm
 --container-daemon-socket=-
 --env-file=/dev/null
