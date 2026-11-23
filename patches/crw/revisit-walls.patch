@@ -1,5 +1,5 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
-index 827cbce..2bc0421 100644
+index 2e62358..f5038d2 100644
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
 @@ -106,6 +106,11 @@ const ALMOST_IDLE_MAX_INFLIGHT: i64 = 2;
@@ -33,10 +33,10 @@ index 827cbce..2bc0421 100644
 +            && named.signal != crw_extract::antibot::AntibotSignal::StructuralFailure)
 +}
 +
- /// Is `document.contentType` one a page is read from? Markup, text and data
- /// are; a PDF, an image or a video is not.
- fn is_page_content_type(content_type: &str) -> bool {
-@@ -4344,7 +4364,6 @@ impl CdpRenderer {
+ /// Detect LightPanda/Chrome navigation error pages.
+ fn detect_navigation_error(html: &str) -> Option<String> {
+     if html.len() > 2000 {
+@@ -4312,7 +4332,6 @@ impl CdpRenderer {
          // prod RUST_LOG=info; enable with RUST_LOG=render_phases=debug for bench).
          let _pt0 = Instant::now();
          let mut t_stability_ms: u64 = 0;
@@ -44,7 +44,7 @@ index 827cbce..2bc0421 100644
          // 2.5. Best-effort consent / CMP dismissal. Cookie banners can both
          // hide content behind an overlay and inflate `body.innerText` past
          // the SPA-readiness threshold prematurely (the banner copy alone
-@@ -4490,23 +4509,27 @@ impl CdpRenderer {
+@@ -4458,23 +4477,27 @@ impl CdpRenderer {
          // Bounded by `self.challenge_max_retries` (config); 0 disables it so
          // anti-bot recovery falls to the stealth/auto-egress tier instead of
          // burning the deadline here (the Firecrawl/Spider approach).
@@ -88,7 +88,7 @@ index 827cbce..2bc0421 100644
  
          // latency-qn render-phase breakdown (debug target; off in prod).
          let total_ms = _pt0.elapsed().as_millis() as u64;
-@@ -4525,6 +4548,106 @@ impl CdpRenderer {
+@@ -4493,6 +4516,106 @@ impl CdpRenderer {
          Ok(html)
      }
  
@@ -195,16 +195,16 @@ index 827cbce..2bc0421 100644
      /// Measure the content box (Page.getLayoutMetrics) and decide whether a
      /// full-page capture must be clipped. `None` => page fits, take the plain
      /// full-page shot. `Some((w,h))` => clip to these CSS-px dims. On measure
-@@ -5965,7 +6088,7 @@ mod tests {
+@@ -5933,7 +6056,7 @@ mod tests {
  
      // --- is_challenge_page ------------------------------------------------------
  
--    use super::{is_challenge_page, is_page_content_type};
-+    use super::{is_challenge_page, is_page_content_type, is_revisitable_wall};
+-    use super::is_challenge_page;
++    use super::{is_challenge_page, is_revisitable_wall};
  
      #[test]
      fn challenge_page_detects_cloudflare_just_a_moment() {
-@@ -6011,6 +6134,34 @@ mod tests {
+@@ -5979,6 +6102,34 @@ mod tests {
          ));
      }
  
@@ -237,5 +237,5 @@ index 827cbce..2bc0421 100644
 +    }
 +
      #[test]
-     fn page_content_types() {
-         for ct in [
+     fn challenge_page_detects_akamai_interstitial() {
+         // marriott.com's.

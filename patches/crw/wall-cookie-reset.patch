@@ -1,5 +1,5 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
-index 2bc0421..2655f9d 100644
+index f5038d2..5fba99c 100644
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
 @@ -7,7 +7,7 @@ use std::collections::HashMap;
@@ -210,10 +210,10 @@ index 2bc0421..2655f9d 100644
 +    }
 +}
 +
- /// Is `document.contentType` one a page is read from? Markup, text and data
- /// are; a PDF, an image or a video is not.
- fn is_page_content_type(content_type: &str) -> bool {
-@@ -3920,8 +4063,9 @@ impl CdpRenderer {
+ /// Detect LightPanda/Chrome navigation error pages.
+ fn detect_navigation_error(html: &str) -> Option<String> {
+     if html.len() > 2000 {
+@@ -3905,8 +4048,9 @@ impl CdpRenderer {
              // we attempt a partial-DOM snapshot and return `truncated = true`;
              // `single.rs` decides success on md length.
              let phase = self.post_navigate_phase(conn, &session_id, url, wait_for_ms, &net_tracker);
@@ -225,7 +225,7 @@ index 2bc0421..2655f9d 100644
                  Ok(Err(err)) => return Err(err),
                  Err(_) => {
                      // Before `Page.stopLoading` (which cancels requests and moves
-@@ -3972,7 +4116,7 @@ impl CdpRenderer {
+@@ -3957,7 +4101,7 @@ impl CdpRenderer {
                          .chrome_budget_truncated_total
                          .with_label_values(&[if html.is_empty() { "empty" } else { "ok" }])
                          .inc();
@@ -234,7 +234,7 @@ index 2bc0421..2655f9d 100644
                  }
              };
              // Browser actions run on the loaded page, outside the nav-budget race
-@@ -4033,18 +4177,17 @@ impl CdpRenderer {
+@@ -4018,18 +4162,17 @@ impl CdpRenderer {
              // report its status, not the challenge's. A 404 or 410 is replaced
              // only while the page is still the URL asked for: a dead link that
              // redirects to the home page by script keeps its 404.
@@ -257,7 +257,7 @@ index 2bc0421..2655f9d 100644
                               ? e.responseStatus || 0 : 0; }})()"
                          ),
                          "returnByValue": true,
-@@ -4058,6 +4201,10 @@ impl CdpRenderer {
+@@ -4043,6 +4186,10 @@ impl CdpRenderer {
                  .and_then(|s| u16::try_from(s).ok())
                  .filter(|s| *s != 0)
                  .unwrap_or(status_code)
@@ -268,7 +268,7 @@ index 2bc0421..2655f9d 100644
              } else {
                  status_code
              };
-@@ -4358,7 +4505,10 @@ impl CdpRenderer {
+@@ -4326,7 +4473,10 @@ impl CdpRenderer {
          url: &str,
          wait_for_ms: Option<u64>,
          net: &NetworkActivityTracker,
@@ -280,7 +280,7 @@ index 2bc0421..2655f9d 100644
          // Phase-timing measurement (latency-qn): which post-navigate phase eats
          // the render time? Emitted on the `render_phases` debug target (off in
          // prod RUST_LOG=info; enable with RUST_LOG=render_phases=debug for bench).
-@@ -4522,12 +4672,86 @@ impl CdpRenderer {
+@@ -4490,12 +4640,86 @@ impl CdpRenderer {
          // loop above waited that out), and not when the caller set the timing.
          if wait_for_ms.is_none()
              && self.name == "chrome"
@@ -368,7 +368,7 @@ index 2bc0421..2655f9d 100644
          }
          let t_challenge_ms = _chal_t.elapsed().as_millis() as u64;
  
-@@ -4545,11 +4769,139 @@ impl CdpRenderer {
+@@ -4513,11 +4737,139 @@ impl CdpRenderer {
              "render phases",
          );
  
@@ -510,7 +510,7 @@ index 2bc0421..2655f9d 100644
          conn.send_recv(
              "Runtime.evaluate",
              serde_json::json!({
-@@ -4627,25 +4979,36 @@ impl CdpRenderer {
+@@ -4595,25 +4947,36 @@ impl CdpRenderer {
              self.page_timeout,
          )
          .await?;
@@ -562,7 +562,7 @@ index 2bc0421..2655f9d 100644
      }
  
      /// Measure the content box (Page.getLayoutMetrics) and decide whether a
-@@ -6415,6 +6778,107 @@ mod tests {
+@@ -6362,6 +6725,107 @@ mod tests {
          assert!(!r.skeleton_wait_applies(Some(500)));
      }
  

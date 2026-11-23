@@ -19,7 +19,7 @@ stack gets through most of them, through four parts:
 | `chrome-stealth` | Real Google Chrome stable on Xvfb, driven over the Chrome DevTools Protocol (CDP), with a pointer helper that moves the mouse like a person and WebGL off on purpose | `docker/chrome-stealth/` |
 | `camofox` | Camoufox, a fingerprint-spoofing Firefox, behind the camofox-browser REST server. The fallback when Chrome is blocked. Heavy, so some installs turn it off | `docker/camofox/`, built from source |
 | `impersonated-http` | No browser; Chrome's TLS and HTTP/2 fingerprint. Fast, and the last resort | inside `crw` |
-| Patches to CRW | Fixes that make CRW use those well: browser before HTTP, reloads and cookie drops on a wall, closing Chrome for a fresh profile when a site has judged it, reading the status of the page actually shown | `patches/crw/*.patch` |
+| Patches to CRW | Fixes that make CRW use those well: reloads and cookie drops on a wall, closing Chrome for a fresh profile when a site has judged it, reading the status of the page actually shown | `patches/crw/*.patch` |
 
 `docs/how-it-works.md` explains each patch and setting. `docs/anti-bot-results.md`
 lists the sites that pass.

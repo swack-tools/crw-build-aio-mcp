@@ -19,23 +19,16 @@ task needs: search, scrape, map, crawl, parse, or extract.
 | `camoufox` | Camoufox, a fingerprint-spoofing Firefox fork, behind the camofox-browser REST server | `camofox` container |
 | `impersonated-http` | No browser. Mimics Chrome's TLS and HTTP/2 fingerprint | Inside `crw` |
 
-You don't need to choose a tier. A scrape that doesn't set `renderer`, which is
-how MCP clients call it, tries each tier until one gets the page:
-
-1. CRW renders the page in Chrome.
-1. If Chrome is blocked, CRW renders the page in Camoufox.
-1. If Camoufox is blocked, CRW tries the `impersonated-http` tier, unless the block
-   was Akamai's, which that tier can't get past.
-1. If every tier is blocked, the scrape fails as blocked instead of returning the
-   block page.
+You can leave `renderer` unset. CRW first checks the URL over HTTP, then
+renders pages in Chrome and falls back to Camoufox when configured. A destination
+policy refusal stops the request from switching renderers.
 
 On a machine short on memory, `just up-minimal` starts the stack without
 Camoufox, so a page that Chrome is blocked on fails instead of falling back. See
 [Run with less memory](docs/build-from-source.md#run-with-less-memory).
 
-Files, such as PDFs, go straight to `impersonated-http`. For the sites that
-this order got past when last checked, see
-[Anti-bot results](docs/anti-bot-results.md).
+CRW processes PDFs from the HTTP response. See the historical
+[anti-bot results](docs/anti-bot-results.md) for earlier tests.
 
 Rendering in Chrome costs a second or more per page. When speed matters more
 than stealth, set `renderer: "impersonated-http"` to fetch the page without a

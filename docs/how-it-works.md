@@ -92,7 +92,6 @@ These settings apply to a scrape that sets nothing, as an MCP client sends it.
 | `CRW_CHROME_RESTART_ON_WALLED_RESET=true` | When a site still turns a first visit away after CRW dropped its cookies, CRW closes Chrome, and the container comes back with a fresh profile (see `wall-cookie-reset.patch`). | Off by default: a browser that nothing restarts would stay closed. |
 | `CRW_RENDERER__CHROME_INTERCEPT_RESOURCES=false` | Pages load images, fonts, and analytics as they do for a person. | Upstream blocks them to save time, and pages can tell. |
 | `CRW_RENDERER__CHROME_CHALLENGE_MAX_RETRIES=8` and `CRW_RENDERER__CHROME_NAV_BUDGET_MS=40000` | An anti-bot challenge gets up to 24 seconds to clear. | Upstream checks once, inside a 12-second page budget. |
-| `CRW_RENDERER__CHROME_OUTBOUND_CHECK=false` | Chrome's requests go straight out, as in a person's browser. Chrome's own Local Network Access still asks before a public page reaches a private address. | Upstream pauses each request to check it against private network ranges, which breaks some anti-bot scripts. Kasada's cleared one cold visit in four with the check and every one without it. |
 | `CRW_RENDERER__CHROME_CONTEXT_POOL_ENABLED=false` | Pages open in Chrome's own profile, so cookies that a site sets, such as an anti-bot clearance, are there on the next visit. | Upstream's pool gives each page its own browser context, which pages can tell is incognito. |
 
 ### User agent string
@@ -176,27 +175,9 @@ puts them back for this stack's Linux Chrome:
   to 4 seconds, so scripts that check the browser after load have written their
   result. It skips the wait when the request sets `waitFor`.
 
-It also adds `CRW_RENDERER__CHROME_OUTBOUND_CHECK`.
-
-### `render-browser-first.patch`
-
-Sends a page to the browser first. Upstream fetched every page once over plain HTTP
-before rendering it, to check its media type. That request is a bot's TLS
-handshake from your IP address. Akamai answered it with an IP-reputation block on
-Kohl's, Marriott, and Apartments.com, and then blocked Chrome on the latter two.
-
-HTTP is now the fallback, through the `impersonated-http` client, when both
-browsers are blocked or fail, and for files:
-
-- A URL that names a file (`.pdf`, `.docx`, `.zip`, images, media) goes straight to
-  the client.
-- Chrome hands over a PDF or download that it opens from any other URL.
-- When the fallback gets a block page too, the scrape fails as blocked instead of
-  returning that page.
-- When both browsers get Akamai's block page, there is no fallback, and the scrape
-  fails as blocked right away. An HTTP client has none of the sensor cookies that
-  Akamai's wall wants, and one more non-browser request is what Akamai holds against
-  your IP address.
+The stack leaves Chrome’s outbound destination checks enabled. CRW checks
+scrape destinations over HTTP before browser rendering, and a destination policy
+refusal stops the request from falling back to another renderer.
 
 ### `revisit-walls.patch`
 
