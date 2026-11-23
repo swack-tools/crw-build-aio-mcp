@@ -1,8 +1,8 @@
 diff --git a/crates/crw-renderer/src/cdp.rs b/crates/crw-renderer/src/cdp.rs
-index 8cf43832..3b675804 100644
+index 827cbce..2bc0421 100644
 --- a/crates/crw-renderer/src/cdp.rs
 +++ b/crates/crw-renderer/src/cdp.rs
-@@ -105,6 +105,11 @@ const ALMOST_IDLE_MAX_INFLIGHT: i64 = 2;
+@@ -106,6 +106,11 @@ const ALMOST_IDLE_MAX_INFLIGHT: i64 = 2;
  const SETTLE_MIN_MS: u64 = 1000;
  const SETTLE_QUIET_MS: i64 = 1000;
  const SETTLE_MAX_MS: u64 = 4000;
@@ -14,7 +14,7 @@ index 8cf43832..3b675804 100644
  /// How long a JavaScript dialog stays open before crw accepts it.
  const DIALOG_ANSWER_DELAY: Duration = Duration::from_millis(700);
  /// Max iterations for the auto-scroll lazy-load pass. 12 viewports usually
-@@ -2371,6 +2376,21 @@ fn is_challenge_page(html: &str) -> bool {
+@@ -2422,6 +2427,21 @@ fn is_challenge_page(html: &str) -> bool {
          || lower.contains("attention required")
  }
  
@@ -36,7 +36,7 @@ index 8cf43832..3b675804 100644
  /// Is `document.contentType` one a page is read from? Markup, text and data
  /// are; a PDF, an image or a video is not.
  fn is_page_content_type(content_type: &str) -> bool {
-@@ -4139,7 +4159,6 @@ impl CdpRenderer {
+@@ -4344,7 +4364,6 @@ impl CdpRenderer {
          // prod RUST_LOG=info; enable with RUST_LOG=render_phases=debug for bench).
          let _pt0 = Instant::now();
          let mut t_stability_ms: u64 = 0;
@@ -44,7 +44,7 @@ index 8cf43832..3b675804 100644
          // 2.5. Best-effort consent / CMP dismissal. Cookie banners can both
          // hide content behind an overlay and inflate `body.innerText` past
          // the SPA-readiness threshold prematurely (the banner copy alone
-@@ -4278,23 +4297,27 @@ impl CdpRenderer {
+@@ -4490,23 +4509,27 @@ impl CdpRenderer {
          // Bounded by `self.challenge_max_retries` (config); 0 disables it so
          // anti-bot recovery falls to the stealth/auto-egress tier instead of
          // burning the deadline here (the Firecrawl/Spider approach).
@@ -88,7 +88,7 @@ index 8cf43832..3b675804 100644
  
          // latency-qn render-phase breakdown (debug target; off in prod).
          let total_ms = _pt0.elapsed().as_millis() as u64;
-@@ -4313,6 +4336,106 @@ impl CdpRenderer {
+@@ -4525,6 +4548,106 @@ impl CdpRenderer {
          Ok(html)
      }
  
@@ -195,7 +195,7 @@ index 8cf43832..3b675804 100644
      /// Measure the content box (Page.getLayoutMetrics) and decide whether a
      /// full-page capture must be clipped. `None` => page fits, take the plain
      /// full-page shot. `Some((w,h))` => clip to these CSS-px dims. On measure
-@@ -5651,7 +5774,7 @@ mod tests {
+@@ -5965,7 +6088,7 @@ mod tests {
  
      // --- is_challenge_page ------------------------------------------------------
  
@@ -204,7 +204,7 @@ index 8cf43832..3b675804 100644
  
      #[test]
      fn challenge_page_detects_cloudflare_just_a_moment() {
-@@ -5697,6 +5820,34 @@ mod tests {
+@@ -6011,6 +6134,34 @@ mod tests {
          ));
      }
  
