@@ -142,8 +142,8 @@ jobs labeled `ubuntu-24.04-arm`, build the same image for Arm:
 devcontainer build --workspace-folder . --platform linux/arm64 --image-name localhost/crw-actions:arm64
 ```
 
-The project configuration keeps the host Docker socket and credentials out of
-the job containers. Use `act --trust-project-actrc --list` to inspect jobs.
+The project configuration disables the host Docker socket and default
+credential inputs. Use `act --trust-project-actrc --list` to inspect jobs.
 Use GitHub Actions for publishing, signing, the macOS disk image, and the CLA
 workflow. Image jobs need registry credentials and a Docker daemon. If you
 test those jobs locally, use a disposable daemon because the Camoufox job
